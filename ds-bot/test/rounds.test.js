@@ -626,3 +626,44 @@ test('a long post goes to the group as a file, and reaches the member with its p
   assert.deepEqual(line.files, [file])
   assert.equal(line.length, undefined, 'the line is short; no file of its own')
 })
+
+// The per-member turn bound, the late-round quiet limit and the reply timeout drop
+// group hand-offs in silence: the log shows the "@Name" that went out, the called
+// member never hears of it, and the round moves on. Each drop is told to the group
+// instead, so a caller learns its hand-off did not land.
+test('a call past the per-member turn limit is dropped, and the group is told once', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const chief = (await call('state', {})).value.mainBotId
+  const writer = (await call('create-bot', { name: 'Writer' })).value
+  const editor = (await call('create-bot', { name: 'Editor' })).value
+  const room = (await call('create-room', { name: 'R1', members: [chief, writer.id, editor.id] })).value
+  await call('update-room', { id: room.id, mode: 'everyone' })
+  sent.length = 0
+
+  await emit(room.id, userMessage('Start'))
+  const running = relay(room.id, 'relay')
+
+  // Everyone mode, admin first: the three opening turns weave @ calls between them.
+  const first = await turnFor(sent)
+  await answer(first.sessionId, first.message.source.exchangeId, '@Writer one', 1)
+  const second = await turnFor(sent, first)
+  await answer(second.sessionId, second.message.source.exchangeId, '@Editor one', 2)
+  const third = await turnFor(sent, first, second)
+  await answer(third.sessionId, third.message.source.exchangeId, '@Writer back', 3)
+  const fourth = await turnFor(sent, first, second, third)
+  await answer(fourth.sessionId, fourth.message.source.exchangeId, '@Editor two', 4)
+  // Editor's second turn calls Writer a third time: Writer already spoke twice, so
+  // the call is dropped. The log must say so, not show a hand-off that never starts.
+  const fifth = await turnFor(sent, first, second, third, fourth)
+  await answer(fifth.sessionId, fifth.message.source.exchangeId, '@Writer again', 5)
+  await running
+
+  const notices = rt.state.rooms[room.id].log.filter(line => line.kind === 'notice')
+  assert.equal(notices.length, 1, 'one notice for the dropped call, not one per message')
+  assert.match(notices[0].text, /@Writer was not called/)
+  assert.match(notices[0].text, /turn limit \(2\)/)
+  const writerSession = rt.state.rooms[room.id].sessions[writer.id]
+  const writerTurns = sent.filter(entry => entry.sessionId === writerSession && entry.message.source.role === 'room')
+  assert.equal(writerTurns.length, 2, 'Writer was called twice, and the third call never reached it')
+})

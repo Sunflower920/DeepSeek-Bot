@@ -58,6 +58,7 @@ const lineText = (line, text = line.text) => {
   if (line.kind === 'cut') return `[${speakerOf(line)}'s work here was cut off by a restart again, so it stopped; ask it to go on if it still matters]`
   if (line.kind === 'stopped') return `[The user stopped ${speakerOf(line)}'s work here]`
   if (line.kind === 'done') return `[${speakerOf(line)} finished the work it was asked for]`
+  if (line.kind === 'notice') return `[${text}]`
   return `${speakerOf(line)}: ${text}`
 }
 const transcript = (lines, textOfLine = line => line.text) => lines.map(line => lineText(line, textOfLine(line))).join('\n')
@@ -355,7 +356,14 @@ export function install(rt) {
   function callMembers(round, turns, index, callees, note, cap, by) {
     let next = index + 1
     for (const peer of callees) {
-      if ((turns.get(peer.id) ?? 0) >= cap) continue
+      if ((turns.get(peer.id) ?? 0) >= cap) {
+        // The bound drops the call in silence: the caller's "@Name" sits in the log
+        // and reads as a hand-off, while the member never hears of it. Keep the drop
+        // in the round, so the group is told once (noteDropped).
+        round.dropped ??= []
+        round.dropped.push({ name: peer.name, cap })
+        continue
+      }
       const waiting = round.slots.findIndex((other, at) => at > index && other.id === peer.id && other.status === 'waiting')
       const called = waiting === -1 ? { id: peer.id, name: peer.name, status: 'waiting' } : round.slots.splice(waiting, 1)[0]
       called.note = note
@@ -364,6 +372,22 @@ export function install(rt) {
       round.slots.splice(next, 0, called)
       next += 1
     }
+  }
+
+  // Calls the per-member turn bound dropped, told to the group once per round. The
+  // log already shows the "@Name" that went out, so without this the hand-off looks
+  // done while nobody was called: the round moved on and the caller waits for an
+  // answer that never starts. The admin can carry the message on, or the round ends
+  // and the next one calls again.
+  const noteDropped = (room, round) => {
+    const dropped = round.dropped ?? []
+    if (dropped.length === 0) return
+    round.dropped = []
+    const names = [...new Set(dropped.map(item => item.name))]
+    const admin = rt.botOf(room.admin)
+    const via = admin !== undefined ? ` @${admin.name} can pass it on, or` : ''
+    appendRoom(room, { who: 'DS Bot', kind: 'notice', text: `@${names.join(' and @')} was not called: this round's per-member turn limit (${dropped[0].cap}) is reached, so the message is in the log but reaches nobody.${via} end this turn and call again in the next round.` })
+    void rt.save().catch(() => {})
   }
 
   // The user's messages waiting in the group Session's inbox while a round runs, from
@@ -400,6 +424,7 @@ export function install(rt) {
       const { all, found } = mentionsIn(line.text, members)
       const note = all || found.length > 0 ? 'the user mentioned you' : 'new message from the user'
       callMembers(round, turns, index - 1, openingSpeakers(room, { text: line.text }), note, ROOM_ADMIN_TURNS_EACH)
+      noteDropped(room, round)
     }
     // The user spoke in this room, so late results may call members again.
     room.lateRounds = 0
@@ -482,6 +507,7 @@ export function install(rt) {
       const found = named.filter(other => other.id !== member.id)
       const callees = leads && all ? [...found, ...others.filter(other => !found.includes(other))] : found
       callMembers(round, turns, index, callees, `${member.name} mentioned you`, leads ? ROOM_ADMIN_TURNS_EACH : ROOM_TURNS_EACH, member.id)
+      noteDropped(room, round)
     }
   }
 
