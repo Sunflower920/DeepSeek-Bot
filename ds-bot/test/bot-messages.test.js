@@ -569,9 +569,11 @@ test('a Bot may take part in the same work again, but not message one that waits
   const { take, end } = await handedOn(team)
   end('b')
   take('c')
-  const refused = { message: /^Not sent: (Chief|Writer) is waiting for the result of the work you are doing, and your answer reaches it by itself\./ }
-  await assert.rejects(tool('message_bot', { to: 'Chief', message: 'please accept it' }, 'c'), refused)
-  await assert.rejects(tool('message_bot', { to: 'Writer', message: 'it passes' }, 'c'), refused)
+  // The guard answers with a result, not a failed call: the turn goes on with the
+  // work, and the result says where its answer goes.
+  const refused = /^Not sent: (Chief|Writer) is waiting for the result of the work you are doing, and your answer reaches it by itself once everything you handed on is back\./
+  assert.match(await tool('message_bot', { to: 'Chief', message: 'please accept it' }, 'c'), refused)
+  assert.match(await tool('message_bot', { to: 'Writer', message: 'it passes' }, 'c'), refused)
   assert.deepEqual(callsOf(agents, 'a'), [])
   assert.equal(callsOf(agents, 'b').length, 1)
   end('c', 'it passes')
@@ -585,7 +587,7 @@ test('a Bot may take part in the same work again, but not message one that waits
   end('a')
   take('c')
   assert.match(await tool('message_bot', { to: 'Writer', message: 'what did you change last?' }, 'c'), /^Delivered to Writer/)
-  await assert.rejects(tool('message_bot', { to: 'Chief', message: 'done' }, 'c'), refused)
+  assert.match(await tool('message_bot', { to: 'Chief', message: 'done' }, 'c'), refused)
 })
 
 test('a stopped turn answers at once, and what it handed on comes back to it alone', async (t) => {

@@ -162,10 +162,12 @@ export function install(rt) {
       const postedIn = posted !== undefined && posted.turn === turnOf(exec) ? posted.calls.get(target.id) : undefined
       if (postedIn !== undefined) refuse(`Not sent: you called ${target.name} in "${postedIn}" in this turn, and it works on that there. Send each task one way only; to add to it, post in that group.`)
       // Whoever waits for this work gets the answer by itself; a message there only
-      // sends the work round in a circle.
+      // sends the work round in a circle. Not a failed call: the turn goes on with
+      // the work, and the result says where its answer goes instead of showing a
+      // bare error the Bot cannot act on.
       const works = worksOf(exec)
       if (rt.upstreamOf(works).has(target.id)) {
-        refuse(`Not sent: ${target.name} is waiting for the result of the work you are doing, and your answer reaches it by itself. Finish the work and end your turn; to ask ${target.name} something, end your turn with the question.`)
+        return `Not sent: ${target.name} is waiting for the result of the work you are doing, and your answer reaches it by itself once everything you handed on is back. Finish the work and end your turn; to ask ${target.name} something, end your turn with the question.`
       }
       const toUser = args.reply_to === 'user'
       const work = toUser ? undefined : works[0]
