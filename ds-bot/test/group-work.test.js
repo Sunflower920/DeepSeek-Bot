@@ -429,7 +429,7 @@ test('members still at work show in the team view and in the prompts of the othe
   host.emit('gb', 'tool/call', { callId: 'k1', name: 'pwsh', arguments: '{}' })
   const result = host.round('c1', host.say('@Tester 你怎么看'))
   await settle(() => host.agentOf('gc').calls.length === 1)
-  assert.match(text(host.agentOf('gc').calls[0]), /Still at work on what they were asked; each posts here when done: Writer \(1 min\)\./)
+  assert.match(text(host.agentOf('gc').calls[0]), /Still at work on what they were asked; each posts here when done: Writer \(1 min(, with \d+ group message\(s\) it has not read yet)?\)\./)
   host.begin('gc')
   const { value } = await host.call('state', {})
   assert.deepEqual(value.work.rooms.r1.map(entry => [entry.botId, entry.tool, entry.speaking]), [['b', 'pwsh', undefined], ['c', undefined, true]])
