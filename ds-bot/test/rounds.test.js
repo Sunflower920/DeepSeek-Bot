@@ -667,3 +667,51 @@ test('a call past the per-member turn limit is dropped, and the group is told on
   const writerTurns = sent.filter(entry => entry.sessionId === writerSession && entry.message.source.role === 'room')
   assert.equal(writerTurns.length, 2, 'Writer was called twice, and the third call never reached it')
 })
+
+test('the quiet mode past the late-round limit is told to the group once, and the user resets it', async (t) => {
+  const { call, emit, userMessage, compose, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await call('update-room', { id: room.id, mode: 'admin' })
+  const chief = rt.state.mainBotIds[0]
+
+  // One round, so the admin has a group Session to post from.
+  await emit(room.id, userMessage('Start'))
+  const running = relay(room.id, 'relay')
+  const turn = await turnFor(sent)
+  await answer(turn.sessionId, turn.message.source.exchangeId, 'Ready.', 1)
+  await running
+  const groupSession = rt.state.rooms[room.id].sessions[chief]
+  const state = rt.state.rooms[room.id]
+
+  // Late replies after work have reached the limit: the next post is quiet, and the
+  // group hears why its @ names stop calling anybody.
+  state.lateRounds = 10
+  sent.length = 0
+  await rt.roomStepText(groupSession, {}, '@Writer still with me?', false)
+  await waitFor(() => state.log.some(line => line.kind === 'notice'))
+  const notices = state.log.filter(line => line.kind === 'notice')
+  assert.equal(notices.length, 1, 'one notice when the limit is reached')
+  assert.match(notices[0].text, /quiet mode/)
+  assert.match(notices[0].text, /10-round limit/)
+  assert.equal(state.lateRounds, 10, 'a quiet post does not push the count further')
+  assert.equal(state.quietNoticed, true)
+
+  // A second quiet post says nothing new.
+  await rt.roomStepText(groupSession, {}, '@Writer again?', false)
+  await waitFor(() => sent.length > 0)
+  assert.equal(state.log.filter(line => line.kind === 'notice').length, 1, 'the notice is not repeated')
+
+  // The user writes in the group: the count resets, so later posts call members again.
+  await compose(room.id, 'carry on')
+  const reset = relay(room.id, 'relay-2')
+  const after = await turnFor(sent)
+  await answer(after.sessionId, after.message.source.exchangeId, 'On it.', 2)
+  await reset
+  assert.equal(state.lateRounds, 0)
+  assert.equal(state.quietNoticed, false)
+
+  await rt.roomStepText(groupSession, {}, '@Writer one more', false)
+  await waitFor(() => state.lateRounds === 1)
+  assert.equal(state.log.filter(line => line.kind === 'notice').length, 1, 'no notice once the group talks again')
+})

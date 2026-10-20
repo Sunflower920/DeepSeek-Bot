@@ -428,6 +428,7 @@ export function install(rt) {
     }
     // The user spoke in this room, so late results may call members again.
     room.lateRounds = 0
+    room.quietNoticed = false
     void rt.save().catch(() => {})
     return round.slots.length - before
   }
@@ -750,6 +751,17 @@ export function install(rt) {
   }
   rt.postToRoom = postToRoom
 
+  // Past the late-round limit every later post is quiet: its "@" names call nobody,
+  // while the log still shows them. Members would keep handing work to a room that
+  // no longer answers, so the group is told once when the limit is reached; the
+  // user's next message resets the count (drainRoomInbox) and it may be told again.
+  const noteQuiet = (room) => {
+    if (room.quietNoticed === true) return
+    room.quietNoticed = true
+    appendRoom(room, { who: 'DS Bot', kind: 'notice', text: `The group is in quiet mode: late replies after work have reached the ${ROOM_LATE_ROUNDS}-round limit, so @ names in later posts call nobody, though the messages still reach the log. The user can reset it by writing here, or the current work can finish.` })
+    void rt.save().catch(() => {})
+  }
+
   // A member the round moved on from (it went on working, went quiet or waited for an
   // approval) posts what its turn ended with. The member that asked for it and anyone
   // it names answer; past the late round limit nobody does, so late posts cannot keep a
@@ -765,7 +777,8 @@ export function install(rt) {
     const done = isPass(text) && shown && info.askedBy !== undefined
     if (isPass(text) && !done) return
     const quiet = (room.lateRounds ?? 0) >= ROOM_LATE_ROUNDS
-    if (!quiet) room.lateRounds = (room.lateRounds ?? 0) + 1
+    if (quiet) noteQuiet(room)
+    else room.lateRounds = (room.lateRounds ?? 0) + 1
     await rt.save()
     await postToRoom(room, member, done ? '' : text, { late: true, ...(done ? { done: true } : {}), ...(info.askedBy ? { askedBy: info.askedBy } : {}), ...(quiet ? { quiet: true } : {}) })
       .catch(error => rt.warn('ds-bot: late group reply from %s failed: %s', member.name, error))
@@ -793,7 +806,9 @@ export function install(rt) {
     const calls = callsIn(room, member, text)
     const running = [...rt.roomProgress.values()].find(round => round.roomId === room.id)
     if (!calls && running !== undefined) return postInRound(room, running, member, text)
-    const quiet = !calls || (room.lateRounds ?? 0) >= ROOM_LATE_ROUNDS
+    const limited = (room.lateRounds ?? 0) >= ROOM_LATE_ROUNDS
+    if (limited) noteQuiet(room)
+    const quiet = !calls || limited
     if (!quiet) room.lateRounds = (room.lateRounds ?? 0) + 1
     await rt.save()
     await postToRoom(room, member, text, { progress: true, ...(quiet ? { quiet: true } : {}) })
