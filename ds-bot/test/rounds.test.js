@@ -715,3 +715,61 @@ test('the quiet mode past the late-round limit is told to the group once, and th
   await waitFor(() => state.lateRounds === 1)
   assert.equal(state.log.filter(line => line.kind === 'notice').length, 1, 'no notice once the group talks again')
 })
+
+test('a member the reply timeout cut short is told to the group, not left as silence', async (t) => {
+  const { call, emit, userMessage, relay, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await call('update-room', { id: room.id, mode: 'admin' })
+
+  await emit(room.id, userMessage('Start'))
+  const running = relay(room.id, 'relay')
+  const turn = await turnFor(sent)
+  // The 4-minute reply timeout, fired now instead of in four minutes: the round
+  // moves on without the member, and the group is told the baton was dropped.
+  rt.roomWaiters.get(turn.message.source.exchangeId).resolve({ missed: true })
+  await running
+
+  const notices = rt.state.rooms[room.id].log.filter(line => line.kind === 'notice')
+  assert.equal(notices.length, 1)
+  assert.match(notices[0].text, /did not answer within 4 minutes/)
+  assert.match(notices[0].text, /late reply/)
+})
+
+test('a member still at work is shown with the group messages it has not read yet', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const chief = (await call('state', {})).value.mainBotId
+  const writer = (await call('create-bot', { name: 'Writer' })).value
+  const editor = (await call('create-bot', { name: 'Editor' })).value
+  const room = (await call('create-room', { name: 'R1', members: [chief, writer.id, editor.id] })).value
+  await call('update-room', { id: room.id, mode: 'everyone' })
+  sent.length = 0
+
+  // First round: every member speaks once, so each has a group Session and a `seen`.
+  await emit(room.id, userMessage('hello'))
+  const first0 = relay(room.id, 'relay-1')
+  const spoken = []
+  for (const text of ['Chief here.', 'Writer here.', 'Editor here.']) {
+    const turn = await turnFor(sent, ...spoken)
+    await answer(turn.sessionId, turn.message.source.exchangeId, text, 1)
+    spoken.push(turn)
+  }
+  await first0
+
+  // Second round. Editor starts a turn of its own and does not finish it, so when
+  // the round calls it, it is at earlier work and the round moves on.
+  await emit(room.id, userMessage('again'))
+  const second0 = relay(room.id, 'relay-2')
+  const chiefTurn = await turnFor(sent, ...spoken)
+  await emit(rt.state.rooms[room.id].sessions[editor.id], { type: 'turn/start', data: { turn: 9 } })
+  await answer(chiefTurn.sessionId, chiefTurn.message.source.exchangeId, 'Chief again.', 2)
+  spoken.push(chiefTurn)
+
+  // The Writer's prompt names Editor as still at work, with the group lines Editor
+  // has not read: the user's message and the Chief's answer since Editor last spoke.
+  const writerTurn = await turnFor(sent, ...spoken)
+  assert.match(writerTurn.message.content[0].text, /Editor \(1 min, with [1-9]\d* group message\(s\) it has not read yet\)/)
+  await answer(writerTurn.sessionId, writerTurn.message.source.exchangeId, 'Writer again.', 2)
+  await second0
+})

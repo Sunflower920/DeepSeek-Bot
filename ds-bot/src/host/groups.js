@@ -232,6 +232,7 @@ export function install(rt) {
     const notice = room.notice ? `Group notice (shared instructions for every member):\n${room.notice}` : ''
     if (round.kickoff) return { text: [members, notice, leads ? adminNote(room) : '', roomKickoff(rt.uiLanguage?.())].filter(Boolean).join('\n\n'), files: [] }
     const working = workingIn(room).filter(item => item.bot.id !== member.id)
+      .map(item => ({ ...item, unread: unreadCount(room, item.bot.id) }))
     const text = [
       members,
       notice,
@@ -241,7 +242,7 @@ export function install(rt) {
         ? `This round so far${spokeThisRound ? ', since your last message' : ', starting with the new message'} (oldest first):\n${transcript(current, memberText(room))}`
         : 'Nothing new in this round since your last message.',
       round.shown?.includes(member.id) ? '' : referenceNote(round.references),
-      working.length > 0 ? `Still at work on what they were asked; each posts here when done: ${working.map(item => `${item.bot.name} (${minutesSince(item.since)} min)`).join(', ')}.` : '',
+      working.length > 0 ? `Still at work on what they were asked; each posts here when done: ${working.map(item => `${item.bot.name} (${minutesSince(item.since)} min${item.unread > 0 ? `, with ${item.unread} group message(s) it has not read yet` : ''})`).join(', ')}.` : '',
       `Speaking order for this round: ${round.slots.map(slotLabel).join(' → ')}.`,
       `You are number ${index + 1} of ${round.slots.length}. ${before === 0 ? 'Nobody spoke before you' : `${before} went before you`}${after === 0 ? ', and you are the last.' : `; ${after} after you will see your message.`}`,
       ROOM_REPLY,
@@ -255,6 +256,11 @@ export function install(rt) {
     const bot = rt.botOf(id)
     return entry?.turn !== undefined && bot !== undefined ? [{ bot, since: entry.since ?? Date.now() }] : []
   })
+  // Group lines a member has not been shown yet. A round carries them to the member's
+  // Session, but a turn the reply timeout cut short may leave them unread there, and
+  // the member is never called again: the next speaker is told, so it knows the
+  // hand-off it is waiting on sits behind unread lines.
+  const unreadCount = (room, botId) => room.log.filter(line => line.seq > (room.seen[botId] ?? 0) && line.botId !== botId).length
   const minutesSince = at => Math.max(1, Math.round((Date.now() - at) / 60000))
 
   // A member's message in the round: in the log, for the members after it, and in the
@@ -496,7 +502,13 @@ export function install(rt) {
       } else {
         slot.status = typeof reply === 'string' ? 'passed' : 'missed'
         round.passed.push(member.name)
-        if (reply?.missed) round.replies.push({ kind: 'missed', botId: member.id, name: member.name, color: member.color, time: Date.now() })
+        if (reply?.missed) {
+          round.replies.push({ kind: 'missed', botId: member.id, name: member.name, color: member.color, time: Date.now() })
+          // The round moved on without this member: the log shows the call and then
+          // silence, which reads as a lost message. The group is told the baton was
+          // dropped, and what brings the member back.
+          appendRoom(room, { who: 'DS Bot', kind: 'notice', text: `${member.name} did not answer within ${Math.round(ROOM_REPLY_TIMEOUT_MS / 60000)} minutes, so this round moved on without it. If it is still working, it posts its result later as a late reply; if it is urgent, the user can write here or the admin can follow up.` })
+        }
       }
       const spoken = final === undefined ? said : [...said, final]
       if (spoken.length === 0) continue
