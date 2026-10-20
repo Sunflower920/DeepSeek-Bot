@@ -773,3 +773,32 @@ test('a member still at work is shown with the group messages it has not read ye
   await answer(writerTurn.sessionId, writerTurn.message.source.exchangeId, 'Writer again.', 2)
   await second0
 })
+
+test('a user message that opens a round resets the quiet notice, as a queued one does', async (t) => {
+  const { call, emit, userMessage, relay, answer, stop, sent, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await call('update-room', { id: room.id, mode: 'admin' })
+
+  await emit(room.id, userMessage('Start'))
+  const first = relay(room.id, 'relay-1')
+  const turn = await turnFor(sent)
+  await answer(turn.sessionId, turn.message.source.exchangeId, 'Ready.', 1)
+  await first
+
+  const state = rt.state.rooms[room.id]
+  // The group has gone quiet, and it has been told so.
+  state.lateRounds = 10
+  state.quietNoticed = true
+
+  // The user writes in the group. This message opens a round of its own, rather than
+  // waiting in the inbox for one that is running, and the quiet notice has to reset
+  // with the count: otherwise the group is told about quiet mode only once, ever.
+  await emit(room.id, userMessage('carry on'))
+  const second = relay(room.id, 'relay-2')
+  const again = await turnFor(sent, turn)
+  await answer(again.sessionId, again.message.source.exchangeId, 'On it.', 2)
+  await second
+  assert.equal(state.lateRounds, 0)
+  assert.equal(state.quietNoticed, false, 'the quiet notice can be told again later')
+})

@@ -256,11 +256,12 @@ export function install(rt) {
     const bot = rt.botOf(id)
     return entry?.turn !== undefined && bot !== undefined ? [{ bot, since: entry.since ?? Date.now() }] : []
   })
-  // Group lines a member has not been shown yet. A round carries them to the member's
-  // Session, but a turn the reply timeout cut short may leave them unread there, and
-  // the member is never called again: the next speaker is told, so it knows the
-  // hand-off it is waiting on sits behind unread lines.
-  const unreadCount = (room, botId) => room.log.filter(line => line.seq > (room.seen[botId] ?? 0) && line.botId !== botId).length
+  // How many group lines a member has not been shown yet, counted the same way a
+  // round counts the lines it carries over (unseenLines), so the number a speaker
+  // reads is the number the member would get. A turn the reply timeout cut short
+  // may leave them unread, and the member is never called again: the next speaker
+  // is told, so it knows the hand-off it waits on sits behind unread lines.
+  const unreadCount = (room, botId) => unseenLines(room, botId).length
   const minutesSince = at => Math.max(1, Math.round((Date.now() - at) / 60000))
 
   // A member's message in the round: in the log, for the members after it, and in the
@@ -380,11 +381,14 @@ export function install(rt) {
     }
   }
 
-  // Calls the per-member turn bound dropped, told to the group once per round. The
-  // log already shows the "@Name" that went out, so without this the hand-off looks
-  // done while nobody was called: the round moved on and the caller waits for an
-  // answer that never starts. The admin can carry the message on, or the round ends
-  // and the next one calls again.
+  // Calls the per-member turn bound dropped, told to the group once per batch of
+  // calls: the drop is found while the caller's own reply is handled, so the group
+  // hears of it with that reply and not at the end of the round — a round may see
+  // several batches, one for the user's message and one for each member's reply.
+  // The log already shows the "@Name" that went out, so without this the hand-off
+  // looks done while nobody was called: the round moved on and the caller waits for
+  // an answer that never starts. The admin can carry the message on, or the round
+  // ends and the next one calls again.
   const noteDropped = (room, round) => {
     const dropped = round.dropped ?? []
     if (dropped.length === 0) return
@@ -556,7 +560,13 @@ export function install(rt) {
           ...(post.files === undefined ? {} : { files: post.files }),
         })
       }
-      if (posts.some(post => !post.botId && !post.kickoff)) room.lateRounds = 0
+      // The user wrote here, so late results may call members again and the quiet
+      // notice may be told again: the count and the notice reset together, as they
+      // do for a message that waited in the inbox (drainRoomInbox).
+      if (posts.some(post => !post.botId && !post.kickoff)) {
+        room.lateRounds = 0
+        room.quietNoticed = false
+      }
       await rt.save()
       // An event post, and a member post that calls nobody, never pick the speakers
       // over a message queued with them.
