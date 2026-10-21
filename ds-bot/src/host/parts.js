@@ -837,6 +837,15 @@ export function install(rt) {
     ctx.logger.info('ds-bot: %s%s moved on to part %d at %d tokens (check line %d, hard line %d); %s; %d latest and %d earlier messages carried%s', bot.name, room ? ` in ${room.name}` : '', number + 1, tokens ?? -1, lines?.check ?? -1, lines?.hard ?? -1,
       written !== undefined ? `note written in ${written.attempts} attempt(s)` : `note put together by DS Bot (${noted.fallback}${noted.note ? `, carries part ${noted.noteFrom}'s` : ', nothing to carry'})`,
       carried.recent.length, carried.earlier.length, folder === undefined ? '' : `; now works in ${folder}`)
+    // The fresh part carries only the handoff note, so the member re-reads its work
+    // before it answers and says nothing for a few minutes. Without this the group
+    // sees a member that stopped mid-task, which reads as it being gone (2026-10-21:
+    // the reviewer was silent 15 min after part 3 and the user had to nudge it).
+    if (room !== undefined) {
+      const size = tokens === undefined ? 'its context limit' : `${tokens} tokens`
+      rt.appendRoom(room, { who: 'DS Bot', kind: 'notice', text: `@${bot.name} moved on to part ${number + 1} at ${size}: it starts a fresh session and rebuilds from the handoff note, so it may need a few minutes before it answers. If it is still working, it posts its result later as a late reply.` })
+      void rt.save().catch(() => {})
+    }
   }
 
   // Runs first: an earlier part hands its input on, a part past the hard line makes

@@ -802,3 +802,51 @@ test('a user message that opens a round resets the quiet notice, as a queued one
   assert.equal(state.lateRounds, 0)
   assert.equal(state.quietNoticed, false, 'the quiet notice can be told again later')
 })
+
+
+// A member whose context runs out moves on to a fresh part, which carries only the
+// handoff note: it re-reads its work before it answers, so it says nothing for a few
+// minutes. The group is told, or that silence reads as the member being gone
+// (2026-10-21: the reviewer was silent 15 min after part 3, and the user had to nudge it).
+test('a member that moves on to a fresh part is told to the group, not left as silence', async (t) => {
+  const { call, emit, userMessage, relay, answer, inboxOf, stop, sent, ctx, rt } = start()
+  t.after(stop)
+  const room = await team(call, sent)
+  await call('update-room', { id: room.id, mode: 'admin' })
+  const state = () => rt.state.rooms[room.id]
+  const chief = (await call('state', {})).value.mainBotId
+
+  await emit(room.id, userMessage('Start'))
+  const running = relay(room.id, 'relay')
+  const first = await turnFor(sent)
+  await answer(first.sessionId, first.message.source.exchangeId, 'On it.', 1)
+  const noticesBefore = state().log.filter(line => line.kind === 'notice').length
+
+  // The member's context window is exceeded: its turn stops and it moves on. The agent
+  // is shaped as DSH holds it, so the switch runs the same path it runs in production.
+  const fire = (name, payload) => Promise.all((ctx.listeners.get(name) ?? []).map(listener => listener(payload, () => Promise.resolve(undefined))))
+  const agent = {
+    id: first.sessionId,
+    session: { id: first.sessionId, header: { cwd: 'C://work' }, requestHeader: () => undefined },
+    inbox: inboxOf(first.sessionId),
+    calls: [],
+    status: 'idle',
+    followup: () => {},
+    steer: () => {},
+    cancel: () => {},
+    whenIdle: async () => {},
+    async runMaintenance(fn) { return fn(AbortSignal.timeout(60_000)) },
+  }
+  await fire('agent/request-error', { failure: { code: 'CONTEXT_WINDOW_EXCEEDED' }, signal: AbortSignal.timeout(60_000), agent })
+  await waitFor(() => state().sessions[chief] !== first.sessionId)
+  // The fresh part takes the handoff package as its first turn.
+  await waitFor(() => sent.find(entry => entry.message.source.handoff === true))
+
+  const notices = state().log.filter(line => line.kind === 'notice').slice(noticesBefore)
+  assert.equal(notices.length, 1, 'the switch is told once')
+  assert.match(notices[0].text, /@Chief moved on to part 2 at/)
+  assert.match(notices[0].text, /fresh session/)
+  assert.match(notices[0].text, /few minutes/)
+  assert.match(notices[0].text, /late reply/)
+  await running.catch(() => {})
+})

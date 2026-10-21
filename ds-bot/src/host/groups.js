@@ -173,11 +173,15 @@ export function install(rt) {
 
   const appendRoom = (room, line) => {
     room.seq += 1
-    const log = [...room.log, keepGroupLine(room.id, { ...line, seq: room.seq }, line.text ?? '')]
+    // parts.js reaches this at a switch, which a group with no logged line yet can do;
+    // it must not fail there, or the member would not move on at all.
+    const log = [...(room.log ?? []), keepGroupLine(room.id, { ...line, seq: room.seq }, line.text ?? '')]
     for (const gone of log.slice(0, -ROOM_LOG_MAX)) dropGroupLine(room.id, gone)
     room.log = log.slice(-ROOM_LOG_MAX)
   }
-  Object.assign(rt, { keepGroupLine, dropGroupLines })
+  // On `rt` so parts.js can tell the group a member moved to a fresh part: the member
+  // then answers nobody for a while, which without a note reads as it being gone.
+  Object.assign(rt, { keepGroupLine, dropGroupLines, appendRoom })
 
   // A member's group Session, created on its first turn there. A new one starts with
   // a fresh look at the log and a brief of the member's own chat; the brief is the
