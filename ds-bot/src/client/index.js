@@ -548,9 +548,18 @@ export function apply(ctx) {
     exchange: (a, b) => call('exchange', { a, b }).catch(() => []),
     exchangeText: id => call('exchange-text', { id }).catch(() => undefined),
     fileText: file => call('file-text', { file }).catch(() => undefined),
-    // A group chat's file chip (send_file): the bytes come back as a download, which
-    // the browser opens with the file's own app or saves.
+    // A group chat's file chip (send_file): the host stages the bytes and opens the
+    // file with the app that owns it, on the machine the host runs on.
     openFile: async (file) => {
+      try {
+        await call('file-launch', { file })
+      } catch (error) {
+        actions.reportError(error, 'open-file')
+      }
+    },
+    // The chip's small icon: a plain download, for kinds the host does not open and
+    // for readers who want the copy anyway.
+    downloadFile: async (file) => {
       try {
         const response = await callFile('file-open', { file })
         const url = URL.createObjectURL(await response.blob())
@@ -558,7 +567,7 @@ export function apply(ctx) {
         link.click()
         setTimeout(() => URL.revokeObjectURL(url), 1000)
       } catch (error) {
-        actions.reportError(error, 'open-file')
+        actions.reportError(error, 'download-file')
       }
     },
     roomProgress: roomId => call('room-progress', { roomId }).catch(() => []),

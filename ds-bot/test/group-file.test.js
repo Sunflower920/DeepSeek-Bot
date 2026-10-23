@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { homedir, tmpdir } from 'node:os'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, truncateSync, writeFileSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
@@ -189,6 +190,42 @@ test('the bytes endpoint answers a stored file as a download, and a refusal as J
   assert.equal(body.error.code, 'bot/unavailable')
   const unnamed = await openFile({})
   assert.equal((await unnamed.json()).error.code, 'bot/invalid')
+})
+
+test('file-launch opens a stored file with the app that owns it, from a staged copy', async (t) => {
+  const { call, stop, rt } = start()
+  t.after(stop)
+  const store = fakeAttachments()
+  rt.ctx.get = name => (name === 'attachments' ? store : undefined)
+  const launched = []
+  rt.launchFile = path => launched.push(path)
+  const saved = await store.saveFile({ data: new TextEncoder().encode('table-bytes'), name: '底稿.xlsx' })
+  const result = await call('file-launch', { file: saved })
+  assert.equal(result.ok, true)
+  assert.equal(launched.length, 1, 'the host handed the file to its app')
+  const staged = String(launched[0])
+  assert.ok(staged.includes(join(rt.home, 'opened')), `the copy sits in the team's scratch folder: ${staged}`)
+  assert.ok(staged.endsWith('底稿.xlsx'), `the copy keeps the file's name: ${staged}`)
+  assert.equal(await readFile(staged, 'utf8'), 'table-bytes')
+})
+
+test('file-launch refuses kinds it must not run, and names no app', async (t) => {
+  const { call, stop, rt } = start()
+  t.after(stop)
+  const store = fakeAttachments()
+  rt.ctx.get = name => (name === 'attachments' ? store : undefined)
+  const launched = []
+  rt.launchFile = path => launched.push(path)
+  const script = await store.saveFile({ data: new TextEncoder().encode('evil'), name: 'setup.exe' })
+  const result = await call('file-launch', { file: script })
+  assert.equal(result.ok, false)
+  assert.match(result.error.message, /Download it instead/)
+  assert.equal(result.error.code, 'bot/refused')
+  assert.equal(launched.length, 0, 'nothing was launched')
+  const noName = await call('file-launch', { file: { attachmentId: 'sha256:x' } })
+  assert.equal(noName.error.code, 'bot/refused', 'a nameless file has no openable extension either')
+  const invalid = await call('file-launch', { file: { name: 'a.txt' } })
+  assert.equal(invalid.error.code, 'bot/invalid')
 })
 
 test('resolveSendFile reads a path the way the group folder names one', async () => {

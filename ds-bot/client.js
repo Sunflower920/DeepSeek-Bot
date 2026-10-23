@@ -89,6 +89,7 @@ var ZH = {
   "Delete group": "删除群聊",
   "Open {name}'s chat": "打开 {name} 的对话",
   "Open {name}": "打开 {name}",
+  "Download {name}": "下载 {name}",
   "New Bot": "新 Bot",
   // Sidebar and account menu
   "Bot list": "Bot 列表",
@@ -2067,7 +2068,8 @@ button.bt-lead{border:0;background:none;padding:0;cursor:pointer}
 .bt-gfile-text{display:flex;flex-direction:column;min-width:0;flex:1}
 .bt-gfile-name{font-size:14px;line-height:22px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bt-gfile-meta{font-size:12px;line-height:15px;color:var(--bt-ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bt-gfile-open{flex:none;display:inline-flex;color:var(--bt-ink-3)}
+.bt-gfile-open{flex:none;display:inline-flex;color:var(--bt-ink-3);cursor:pointer;border-radius:4px;padding:2px}
+.bt-gfile-open:hover{color:var(--bt-accent);background:var(--bt-hover)}
 .bt-gfile-open svg{width:16px;height:16px}
 .bt-x{border:0;background:none;color:var(--bt-ink-2);cursor:pointer;width:24px;height:24px;border-radius:6px;font-size:16px;line-height:24px;padding:0;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
 .bt-x:hover{background:var(--bt-hover);color:var(--bt-ink)}
@@ -4204,7 +4206,10 @@ function GroupFiles({ files, actions }) {
         (0, import_react7.createElement)("span", { className: "bt-gfile-name" }, file.name),
         meta ? (0, import_react7.createElement)("span", { className: "bt-gfile-meta" }, meta) : null
       ),
-      (0, import_react7.createElement)("span", { className: "bt-gfile-open" }, (0, import_react7.createElement)(DownloadIcon))
+      (0, import_react7.createElement)("span", { className: "bt-gfile-open", role: "button", tabIndex: -1, title: t("Download {name}", { name: file.name }), "aria-label": t("Download {name}", { name: file.name }), onClick: (event) => {
+        event.stopPropagation();
+        actions.downloadFile?.(file);
+      } }, (0, import_react7.createElement)(DownloadIcon))
     );
   }));
 }
@@ -14192,9 +14197,18 @@ function apply(ctx) {
     exchange: (a, b) => call("exchange", { a, b }).catch(() => []),
     exchangeText: (id) => call("exchange-text", { id }).catch(() => void 0),
     fileText: (file) => call("file-text", { file }).catch(() => void 0),
-    // A group chat's file chip (send_file): the bytes come back as a download, which
-    // the browser opens with the file's own app or saves.
+    // A group chat's file chip (send_file): the host stages the bytes and opens the
+    // file with the app that owns it, on the machine the host runs on.
     openFile: async (file) => {
+      try {
+        await call("file-launch", { file });
+      } catch (error) {
+        actions.reportError(error, "open-file");
+      }
+    },
+    // The chip's small icon: a plain download, for kinds the host does not open and
+    // for readers who want the copy anyway.
+    downloadFile: async (file) => {
       try {
         const response = await callFile("file-open", { file });
         const url = URL.createObjectURL(await response.blob());
@@ -14202,7 +14216,7 @@ function apply(ctx) {
         link.click();
         setTimeout(() => URL.revokeObjectURL(url), 1e3);
       } catch (error) {
-        actions.reportError(error, "open-file");
+        actions.reportError(error, "download-file");
       }
     },
     roomProgress: (roomId) => call("room-progress", { roomId }).catch(() => []),

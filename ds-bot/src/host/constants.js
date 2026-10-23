@@ -72,6 +72,15 @@ export const TEAM_TOOLS = [
 // The largest file a Bot may send into a group chat (send_file): the bytes are read
 // whole into the attachment store, so a size past this is refused rather than read.
 export const GROUP_FILE_MAX = 64 * 1024 * 1024
+// File kinds the host opens with the app that owns them when a group chip is clicked
+// (file-launch). An allowlist, not a blocklist: opening a file runs it, so anything
+// executable or script-like is not on it and a chip like that only downloads.
+export const OPENABLE_EXTENSIONS = new Set([
+  'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'csv', 'txt', 'md', 'rtf', 'wps', 'et', 'dps',
+  'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'ico', 'tif', 'tiff',
+  'mp3', 'wav', 'm4a', 'mp4', 'mov', 'avi', 'mkv',
+  'json', 'log', 'xml', 'yaml', 'yml', 'ini', 'html', 'htm', 'zip',
+])
 // Answers a group gives to what members post after the round moved on (their finished
 // work, mostly), before the user speaks there again.
 export const ROOM_LATE_ROUNDS = 10

@@ -216,6 +216,8 @@ function GroupMessage({ bot, text, texts = [text], files = [], room, roster, act
 
 // Files a Bot sent into the group (send_file), which the user opens from the chat: the
 // bytes come from the host on a click, so a chip works without a path on the screen.
+// Clicking the chip opens the file with its own app (the host stages it); the small
+// icon downloads a copy instead, for kinds the host does not open.
 function GroupFiles({ files, actions }) {
   return h('div', { className: 'bt-gfiles' }, files.map((file, index) => {
     const meta = [ui.fileExtension?.(file.name)?.toUpperCase().slice(0, 8), ui.fileSizeText?.(file.bytes)].filter(Boolean).join(' · ')
@@ -224,7 +226,7 @@ function GroupFiles({ files, actions }) {
       h('span', { className: 'bt-gfile-text' },
         h('span', { className: 'bt-gfile-name' }, file.name),
         meta ? h('span', { className: 'bt-gfile-meta' }, meta) : null),
-      h('span', { className: 'bt-gfile-open' }, h(DownloadIcon)))
+      h('span', { className: 'bt-gfile-open', role: 'button', tabIndex: -1, title: t('Download {name}', { name: file.name }), 'aria-label': t('Download {name}', { name: file.name }), onClick: event => { event.stopPropagation(); actions.downloadFile?.(file) } }, h(DownloadIcon)))
   }))
 }
 

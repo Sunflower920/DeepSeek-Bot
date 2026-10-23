@@ -1,8 +1,12 @@
 // Client channel: the team view the browser renders, and the POST /api/bot endpoints.
 import { randomUUID } from 'node:crypto'
+import { readdirSync, rmSync, statSync } from 'node:fs'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { questionReply } from './parts.js'
-import { COLORS, EXTRA_COLORS, ROUTE } from './constants.js'
+import { COLORS, EXTRA_COLORS, OPENABLE_EXTENSIONS, ROUTE } from './constants.js'
+import { openExternally } from './open-external.js'
 
 const LANGUAGES = { zh: 'Chinese (简体中文)', en: 'English' }
 
@@ -62,6 +66,67 @@ export function install(rt) {
       },
     })
   }
+  // The same chip, opened for reading: the host is on the user's machine, so it puts
+  // the bytes in a scratch folder and hands the file to the app that owns it (Excel
+  // for a table, Word for a document), which saves the reader the download. A copy
+  // rather than the store's own file, because a viewer keeps its file locked. Only
+  // kinds that merely open are allowed — a launched file runs, so scripts and
+  // executables stay download-only.
+  const OPENED_DIR = () => join(rt.home, 'opened')
+  const OPENED_KEEP_MS = 24 * 60 * 60 * 1000
+  const sweepOpened = () => {
+    let entries
+    try { entries = readdirSync(OPENED_DIR()) } catch { return }
+    for (const entry of entries) {
+      try {
+        if (Date.now() - statSync(join(OPENED_DIR(), entry)).mtimeMs > OPENED_KEEP_MS) rmSync(join(OPENED_DIR(), entry), { force: true, recursive: true })
+      } catch { /* in use or gone already */ }
+    }
+  }
+  const safeLaunchName = name => {
+    const base = String(name ?? '').split(/[\\/]/).pop().replace(/[<>:"|?*\u0000-\u001f]/g, '_').trim()
+    return base.length > 0 ? base.slice(-120) : 'file'
+  }
+  const fileLaunch = async payload => {
+    const file = payload?.file
+    if (typeof file?.attachmentId !== 'string') return fail('No file named', 'bot/invalid')
+    const name = safeLaunchName(file.name)
+    const dot = name.lastIndexOf('.')
+    if (dot < 0 || !OPENABLE_EXTENSIONS.has(name.slice(dot + 1).toLowerCase())) {
+      return fail(`"${name}" is not a file DS Bot can open directly. Download it instead.`, 'bot/refused')
+    }
+    const attachments = ctx.get?.('attachments')
+    if (attachments === undefined) return fail('This file cannot be read here', 'bot/unavailable')
+    const chunks = []
+    let bytes = 0
+    try {
+      for await (const chunk of attachments.readFileStream(file, undefined)) {
+        chunks.push(chunk)
+        bytes += chunk.length
+      }
+    } catch (error) {
+      rt.warn('ds-bot: file %s not read: %s', file?.name, error)
+      return fail('This file cannot be read here', 'bot/unavailable')
+    }
+    const data = new Uint8Array(bytes)
+    let at = 0
+    for (const chunk of chunks) { data.set(chunk, at); at += chunk.length }
+    let target
+    try {
+      await mkdir(OPENED_DIR(), { recursive: true })
+      // A time prefix keeps launches apart; the name keeps its own, so the app's
+      // window title still reads like the file the Bot sent.
+      target = join(OPENED_DIR(), `${Date.now().toString(36)}-${name}`)
+      await writeFile(target, data)
+    } catch (error) {
+      rt.warn('ds-bot: file %s not staged for opening: %s', name, error)
+      return fail('This file cannot be opened here', 'bot/unavailable')
+    }
+    const launch = typeof rt.launchFile === 'function' ? rt.launchFile : openExternally
+    if (launch(target) === false) return fail('This file cannot be opened here', 'bot/unavailable')
+    try { sweepOpened() } catch { /* best effort */ }
+    return ok({ name: file.name })
+  }
   // Models come from DSH, not state.json, so a provider added in Harness settings
   // changes the view without a new revision.
   const modelsKey = () => `${rt.cachedCatalog().map(entry => entry.reasoning ? `${entry.ref}:${JSON.stringify(entry.reasoning)}` : entry.ref).join(',')}|${rt.cachedDefault() ?? ''}`
@@ -117,7 +182,7 @@ export function install(rt) {
   })
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['state', 'models', 'efforts', 'earlier', 'room-progress', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer'])
+  const READS = new Set(['state', 'models', 'efforts', 'earlier', 'room-progress', 'exchange', 'exchange-text', 'file-text', 'file-launch', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer'])
 
   function setPrefs(body) {
     if (body.theme !== undefined) {
@@ -180,6 +245,9 @@ export function install(rt) {
           const read = await rt.fileText(body.file)
           return read === undefined ? fail('This file cannot be read here', 'bot/unavailable') : ok(read)
         }
+        // A group chat's file chip (send_file), opened with the app that owns it.
+        case 'file-launch':
+          return await fileLaunch(body)
         case 'earlier':
           await rt.load()
           return ok(await rt.earlierPage(String(body.sessionId ?? ''), body.cursor ?? undefined))
