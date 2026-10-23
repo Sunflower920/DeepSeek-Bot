@@ -87,7 +87,7 @@ export const referenceNote = references => (references?.length
   : '')
 
 const ROOM_REPLY = 'Reply with your message for the group, no name prefix: in a discussion, one or two short messages. When you are asked to do something, do it now with your tools. The group does not wait for you and sees what you write while you work: say what you will do, write again only when something matters, and end with the result, never a promise to do it later. Reply [PASS] to stay silent when you have nothing new to add or the message is for someone else.'
-const ROOM_CALLS = 'Writing "@Name" calls that member next, to answer or to do what you ask; when it finishes work you gave it, you answer its result. To only mention a member, write its name without "@".'
+const ROOM_CALLS = 'Writing "@Name" calls that member next, to answer or to do what you ask; when it finishes work you gave it, you answer its result. Every "@Name" in your own reply is called. A dispatch from the admin calls only the first member it names — the others wait for the hand-off — so give work to one member at a time and let the one that finishes call the next. To only mention a member, write its name without "@".'
 
 const slotLabel = (slot) => {
   if (slot.status === 'speaking') return `${slot.name} (you, now)`
@@ -437,7 +437,7 @@ export function install(rt) {
       round.replies.push({ kind: 'user', text: line.text, time: Date.now() })
       const { all, found } = mentionsIn(line.text, members)
       const note = all || found.length > 0 ? 'the user mentioned you' : 'new message from the user'
-      callMembers(round, turns, index - 1, openingSpeakers(room, { text: line.text }), note, ROOM_ADMIN_TURNS_EACH)
+      callMembers(round, turns, index - 1, openingSpeakers(room, { text: line.text }).speakers, note, ROOM_ADMIN_TURNS_EACH)
       noteDropped(room, round)
     }
     // The user spoke in this room, so late results may call members again.
@@ -526,9 +526,31 @@ export function install(rt) {
       const others = everyone.filter(other => other.id !== member.id)
       const { all, found: named } = mentionsIn(spoken.join('\n\n'), everyone)
       const found = named.filter(other => other.id !== member.id)
-      const callees = leads && all ? [...found, ...others.filter(other => !found.includes(other))] : found
+      // A dispatch calls the member that starts; the ones it names for a later step
+      // wait for the hand-off, so they do not begin their own work in the same round
+      // (openingSpeakers holds the same rule for the post that opens one).
+      let callees = found
+      if (dispatches(room, member.id) && !all && found.length > 1) {
+        callees = found.slice(0, 1)
+        round.standby = [...new Set([...(round.standby ?? []), ...found.slice(1).map(bot => bot.id)])]
+      }
+      if (leads && all) callees = [...callees, ...others.filter(other => !callees.includes(other))]
       callMembers(round, turns, index, callees, `${member.name} mentioned you`, leads ? ROOM_ADMIN_TURNS_EACH : ROOM_TURNS_EACH, member.id)
       noteDropped(room, round)
+    }
+    // Members a dispatch named for a later step that no hand-off ever called: the
+    // round ended with the work unfinished, which reads as a lost message. The group
+    // is told, as it is for a call the turn limit dropped (noteDropped).
+    if (!signal.aborted) {
+      const uncalled = (round.standby ?? []).filter(id => !round.slots.some(slot => slot.id === id))
+      if (uncalled.length > 0) {
+        for (const id of uncalled) {
+          const bot = rt.botOf(id)
+          if (bot === undefined) continue
+          appendRoom(room, { who: 'DS Bot', kind: 'notice', text: `@${bot.name} was named for a later step but was not called: this round ended without a hand-off to it. Whoever holds the next step can call it with @${bot.name}.` })
+        }
+        void rt.save().catch(() => {})
+      }
     }
   }
 
@@ -576,18 +598,20 @@ export function install(rt) {
       const references = posts.flatMap(post => post.references ?? [])
       // A member a Bot's post calls by name works for that Bot.
       const named = opener.botId === undefined ? [] : mentionsIn(opener.text ?? '', room.members.map(rt.botOf).filter(Boolean)).found
+      const { speakers, standby } = openingSpeakers(room, opener)
       const round = {
         roomId: room.id,
         members: room.members,
         startSeq,
         ...(opener.kickoff ? { kickoff: true } : {}),
         ...(references.length > 0 ? { references, shown: [] } : {}),
-        slots: openingSpeakers(room, opener).map(member => ({
+        slots: speakers.map(member => ({
           id: member.id, name: member.name, status: 'waiting',
           ...(opener.kickoff ? { note: 'the group was just created' } : {}),
           ...(named.includes(member) ? { by: opener.botId } : {}),
           ...(opener.done ? { note: `${opener.name ?? 'a member'} finished the work you asked for` } : {}),
         })),
+        standby: standby.map(bot => bot.id),
         speaking: null,
         turns: 0,
         replies: [],
@@ -716,24 +740,38 @@ export function install(rt) {
     },
   }))
 
+  // The admin dispatches the work of a group; a member hands it off. A Main Bot that
+  // is not this group's admin still dispatches when it posts into the group.
+  const dispatches = (room, botId) => botId !== undefined && (rt.isAdminOf(room, botId) || rt.isMain(botId))
+
   // A Bot that posts never answers its own post. @mentions choose the speakers; else
   // the admin answers alone in admin mode, or first of everyone. What a member posts
   // after its round moved on is answered by the member that asked for it; work the
   // user asked for is left for the user to read.
+  //
+  // A dispatch names the member that starts and the ones that follow it: only the
+  // first is called, the rest wait for the hand-off. On 2026-10-23 the code reviewer
+  // began its own review while the developer was still working, because the dispatch
+  // "@开发工程师 派单 … @代码审查员 待命等确认" woke both; the finisher's own "@Name"
+  // brings the next one in, with the result in the log it reads. The user's own
+  // message calls everyone it names, and so does a member's hand-off.
   function openingSpeakers(room, opener) {
     const everyone = room.members.map(rt.botOf).filter(Boolean)
     const members = everyone.filter(bot => bot.id !== opener.botId)
     const admin = members.find(bot => rt.isAdminOf(room, bot.id))
-    if (opener.kickoff) return admin ? [admin] : []
-    if (opener.quiet) return []
-    if (opener.done) return members.filter(bot => bot.id === opener.askedBy)
+    if (opener.kickoff) return { speakers: admin ? [admin] : [], standby: [] }
+    if (opener.quiet) return { speakers: [], standby: [] }
+    if (opener.done) return { speakers: members.filter(bot => bot.id === opener.askedBy), standby: [] }
     const { all, found: named } = mentionsIn(opener.text, everyone, opener.references)
     const found = named.filter(bot => bot.id !== opener.botId)
-    if (opener.progress) return found
-    if (opener.late) return found.length > 0 ? found : members.filter(bot => bot.id === opener.askedBy)
-    if (found.length > 0 && !all) return found
-    if (!all && room.mode === 'admin' && admin) return [admin]
-    return admin ? [admin, ...members.filter(bot => bot !== admin)] : members
+    if (opener.progress) return { speakers: found, standby: [] }
+    if (opener.late) return { speakers: found.length > 0 ? found : members.filter(bot => bot.id === opener.askedBy), standby: [] }
+    if (found.length > 0 && !all) {
+      if (dispatches(room, opener.botId)) return { speakers: [found[0]], standby: found.slice(1) }
+      return { speakers: found, standby: [] }
+    }
+    if (!all && room.mode === 'admin' && admin) return { speakers: [admin], standby: [] }
+    return { speakers: admin ? [admin, ...members.filter(bot => bot !== admin)] : members, standby: [] }
   }
 
   // A Bot's message into the group's own Session, which relays it as a new round.
