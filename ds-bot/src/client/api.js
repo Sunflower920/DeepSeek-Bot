@@ -40,3 +40,23 @@ export const call = async (endpoint, payload, signal) => {
   }
   return result.value
 }
+
+// One endpoint answers the request itself with the file's bytes (file-open), so its
+// response is read as a download instead of the JSON envelope. A refusal still comes
+// back as JSON, under a 200, which is turned back into the error `call` would throw.
+export const callFile = async (endpoint, payload) => {
+  const response = await fetch(ROUTE, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ endpoint, payload: payload ?? null }),
+  })
+  if (!response.ok) throw Object.assign(new Error(hostText(`HTTP ${response.status}`)), { code: `HTTP_${response.status}` })
+  if ((response.headers.get('content-type') ?? '').includes('json')) {
+    const result = await response.json()
+    const code = result?.error?.code ?? 'bot/error'
+    const message = hostText(result?.error?.message ?? 'Request failed')
+    throw Object.assign(new Error(code === 'bot/internal' ? `${message} ${t('Settings → Feedback has the details.')}` : message), { code })
+  }
+  return response
+}

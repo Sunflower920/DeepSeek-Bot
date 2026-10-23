@@ -1,4 +1,4 @@
-import { call } from './api.js'
+import { call, callFile } from './api.js'
 import { isHex, inkText, paintCss } from './inks.js'
 import { DEFAULT_MASK, SHAPES, markupCache, maskOf } from './characters.js'
 import { countCards, createSource, EMPTY_ROSTER, indexRoster, isAgentSession } from './sources.js'
@@ -548,6 +548,19 @@ export function apply(ctx) {
     exchange: (a, b) => call('exchange', { a, b }).catch(() => []),
     exchangeText: id => call('exchange-text', { id }).catch(() => undefined),
     fileText: file => call('file-text', { file }).catch(() => undefined),
+    // A group chat's file chip (send_file): the bytes come back as a download, which
+    // the browser opens with the file's own app or saves.
+    openFile: async (file) => {
+      try {
+        const response = await callFile('file-open', { file })
+        const url = URL.createObjectURL(await response.blob())
+        const link = Object.assign(document.createElement('a'), { href: url, download: file?.name ?? 'file' })
+        link.click()
+        setTimeout(() => URL.revokeObjectURL(url), 1000)
+      } catch (error) {
+        actions.reportError(error, 'open-file')
+      }
+    },
     roomProgress: roomId => call('room-progress', { roomId }).catch(() => []),
     earlier: (sessionId, cursor) => call('earlier', { sessionId, cursor: cursor ?? null }),
     // Hours come back in this browser's time zone, so days start at local midnight.

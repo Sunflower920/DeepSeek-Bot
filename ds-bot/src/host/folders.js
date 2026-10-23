@@ -11,7 +11,7 @@ const PICK_TIMEOUT_MS = 10 * 60_000
 
 export const within = (inner, outer) => inner === outer || inner.startsWith(outer.endsWith(sep) ? outer : outer + sep)
 
-const expandHome = text => (text === '~' ? homedir() : /^~[\\/]/.test(text) ? join(homedir(), text.slice(2)) : text)
+export const expandHome = text => (text === '~' ? homedir() : /^~[\\/]/.test(text) ? join(homedir(), text.slice(2)) : text)
 
 // Read as DSH reads it, so the team's data and the guarded folder are where DSH keeps
 // its own: a blank value counts as unset.

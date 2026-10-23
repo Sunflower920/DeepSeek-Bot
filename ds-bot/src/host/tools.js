@@ -1,9 +1,12 @@
 // Team tools: the roster, bot-to-bot messages, group chat settings and posts, and the
 // question card. Group rounds and reading chats are in groups.js.
+import { readFile, realpath, stat } from 'node:fs/promises'
+import { basename, isAbsolute, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { COLORS, EXTRA_COLORS, MESSAGE_INLINE_MAX, ROOM_MODES, SOURCE_KIND } from './constants.js'
+import { COLORS, EXTRA_COLORS, GROUP_FILE_MAX, MESSAGE_INLINE_MAX, ROOM_MODES, SOURCE_KIND } from './constants.js'
 import { absoluteLinks } from './links.js'
+import { expandHome, within } from './folders.js'
 import { unquote } from './text.js'
 import { mentionSpans } from '../shared/mentions.js'
 
@@ -20,6 +23,36 @@ const MODE_PARAM = {
   description: '"everyone": every member answers a plain message in turn, admin first. "admin" (the default): a plain message goes to the admin, who calls others with @Name. @mentions always choose who answers.',
 }
 const WORK_DIR_PARAM = { type: 'string', description: 'Full path of the folder to work in, where commands and file tools start. Only when the user asks for it' }
+
+// The file a Bot may send into a group: its path, read the way DSH reads a working
+// folder's paths. Only a file inside a folder the group works in may leave this way —
+// a Bot that could send any path could pass whatever it read anywhere on the disk
+// straight to the chat window. The size comes back with the path, so a caller can
+// refuse an oversized file before it is read into memory.
+export async function resolveSendFile(input, { base, roots = [], max }) {
+  const text = unquote(String(input ?? ''))
+  if (text === '') return { error: 'Give the path of the file to send.' }
+  const expanded = expandHome(text)
+  let path
+  try {
+    path = await realpath(isAbsolute(expanded) ? expanded : resolve(base ?? '', expanded))
+  } catch {
+    return { error: `There is no file at ${text}.` }
+  }
+  const info = await stat(path).catch(() => undefined)
+  if (info === undefined || !info.isFile()) return { error: `${text} is not a file.` }
+  const allowed = []
+  for (const root of roots) {
+    try { allowed.push(await realpath(root)) } catch { /* a folder that is gone names nothing */ }
+  }
+  if (!allowed.some(root => within(path, root))) {
+    return { error: `Not sent: ${path} is outside the folders this group works in (${allowed.join(' or ')}). Copy it there first, or ask the user to give the group that folder.` }
+  }
+  if (info.size > max) {
+    return { error: `Not sent: the file has ${info.size} bytes, more than the ${max} bytes this can send. Split it, or give the user its path instead.` }
+  }
+  return { path, name: basename(path), bytes: info.size }
+}
 
 export function install(rt) {
   const { ctx, state } = rt
@@ -498,6 +531,49 @@ export function install(rt) {
       const asker = sub === undefined ? undefined : rt.botOf(state.works[work]?.from)?.name
       const waits = asker ? ` End your turn when you have handed on everything: the replies bring you back to this work, and your answer goes to ${asker} once all of it is back.` : ''
       return `Posted in "${room.name}". Members reply there, where the user reads them${reportBack ? '; their replies also come back to you as a new message when the round ends' : ', and nothing comes back to you'}.${waits}`
+    },
+  }))
+
+  // A file a Bot made, into the group where the user reads it: the bytes go to the
+  // attachment store once and the group's Session carries the reference, so the user
+  // opens the file itself instead of chasing a path. It posts as a message of the
+  // Bot's, which starts no round by itself; "@Name" in the text still calls that
+  // member to look at the file.
+  ctx.tools.register(defineTool({
+    name: 'send_file',
+    description: 'Send a file from the folder this group works in into the group chat, where the user can open it. Use it for something you made or changed there — a document, a table, a report — instead of telling the user a path. Nobody is called to answer it unless the message says "@Name".',
+    parameters: {
+      group: GROUP_REF,
+      path: { type: 'string', required: true, description: 'Path of the file: absolute, or relative to the folder you work in. It must be inside a folder this group works in' },
+      message: { type: 'string', description: 'What to say with the file; write "@Name" to have a member look at it' },
+    },
+    output,
+    async execute(args, exec) {
+      await rt.load()
+      const self = rt.selfOf(exec.agent?.id)
+      const sender = rt.botOf(self)
+      if (sender === undefined) return 'Only Bots on the team can use send_file.'
+      const { room, error } = pickRoom(args.group, self)
+      if (error) return error
+      // The group's folder first, then the sender's own, then the team workspace: where
+      // its work already sits, which the user has already let it write.
+      const roots = [...new Set([rt.workDirOf?.({ roomId: room.id }), rt.workDirOf?.({ botId: self }), rt.teamFolder?.()].filter(Boolean))]
+      if (roots.length === 0) return `"${room.name}" works in no folder yet, so there is no file to send from. Ask the user to give the group one with update_group.`
+      const base = rt.sessionFolder?.(exec.agent?.session ?? exec.agent)
+      const found = await resolveSendFile(args.path, { base, roots, max: GROUP_FILE_MAX })
+      if (found.error !== undefined) return found.error
+      let file
+      try {
+        const data = await readFile(found.path)
+        file = await ctx.get?.('attachments')?.saveFile({ data: new Uint8Array(data), name: found.name })
+      } catch (failure) {
+        rt.warn('ds-bot: file %s not sent: %s', found.path, failure)
+        return `Could not read ${found.path}: ${failure?.message ?? failure}`
+      }
+      if (file === undefined) return 'This DeepSeek Harness cannot store files, so the file cannot be sent. Give the user its path instead.'
+      const text = absoluteLinks(String(args.message ?? '').trim(), base)
+      await rt.postToRoom(room, sender, text, { progress: true }, [file])
+      return `Sent "${file.name}" (${file.bytes} bytes) into "${room.name}". The user can open it there.`
     },
   }))
 

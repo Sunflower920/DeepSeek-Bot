@@ -198,6 +198,18 @@ button.bt-lead{border:0;background:none;padding:0;cursor:pointer}
 /* Rows without the avatar start where the bubble beside it starts: 22px avatar + 8px gap. */
 .bt-astack[data-lead]>.bt-msg:not(:last-child)>.bt-msg-line,.bt-astack[data-lead] .bt-reacts{margin-left:30px}
 .bt-group-name{font-size:12px;line-height:16px;font-weight:500;margin-left:42px}
+/* Files a Bot sent into the group (send_file): they sit under its name, where the
+   bubbles start, and open from the host on a click. */
+.bt-gfiles{display:flex;flex-wrap:wrap;gap:8px;margin-left:42px;max-width:100%}
+.bt-gfile{display:inline-flex;align-items:center;gap:10px;box-sizing:border-box;width:240px;min-height:56px;padding:8px 12px;border-radius:14px;border:.5px solid var(--bt-line-2);background:var(--bt-card);color:var(--bt-ink);font:inherit;text-align:start;cursor:pointer;transition:border-color .12s ease,background-color .12s ease}
+.bt-gfile:hover{border-color:var(--bt-accent);background:var(--bt-hover)}
+.bt-gfile:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.bt-gfile-icon{flex:none;width:28px;height:28px}
+.bt-gfile-text{display:flex;flex-direction:column;min-width:0;flex:1}
+.bt-gfile-name{font-size:14px;line-height:22px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt-gfile-meta{font-size:12px;line-height:15px;color:var(--bt-ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt-gfile-open{flex:none;display:inline-flex;color:var(--bt-ink-3)}
+.bt-gfile-open svg{width:16px;height:16px}
 .bt-x{border:0;background:none;color:var(--bt-ink-2);cursor:pointer;width:24px;height:24px;border-radius:6px;font-size:16px;line-height:24px;padding:0;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, 'scale')}}
 .bt-x:hover{background:var(--bt-hover);color:var(--bt-ink)}
 

@@ -88,6 +88,7 @@ var ZH = {
   "Create group chat": "新建群聊",
   "Delete group": "删除群聊",
   "Open {name}'s chat": "打开 {name} 的对话",
+  "Open {name}": "打开 {name}",
   "New Bot": "新 Bot",
   // Sidebar and account menu
   "Bot list": "Bot 列表",
@@ -1111,6 +1112,22 @@ var call = async (endpoint, payload, signal) => {
   }
   return result.value;
 };
+var callFile = async (endpoint, payload) => {
+  const response = await fetch(ROUTE, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ endpoint, payload: payload ?? null })
+  });
+  if (!response.ok) throw Object.assign(new Error(hostText(`HTTP ${response.status}`)), { code: `HTTP_${response.status}` });
+  if ((response.headers.get("content-type") ?? "").includes("json")) {
+    const result = await response.json();
+    const code = result?.error?.code ?? "bot/error";
+    const message = hostText(result?.error?.message ?? "Request failed");
+    throw Object.assign(new Error(code === "bot/internal" ? `${message} ${t("Settings → Feedback has the details.")}` : message), { code });
+  }
+  return response;
+};
 
 // src/client/inks.js
 var INKS = {
@@ -2040,6 +2057,18 @@ button.bt-lead{border:0;background:none;padding:0;cursor:pointer}
 /* Rows without the avatar start where the bubble beside it starts: 22px avatar + 8px gap. */
 .bt-astack[data-lead]>.bt-msg:not(:last-child)>.bt-msg-line,.bt-astack[data-lead] .bt-reacts{margin-left:30px}
 .bt-group-name{font-size:12px;line-height:16px;font-weight:500;margin-left:42px}
+/* Files a Bot sent into the group (send_file): they sit under its name, where the
+   bubbles start, and open from the host on a click. */
+.bt-gfiles{display:flex;flex-wrap:wrap;gap:8px;margin-left:42px;max-width:100%}
+.bt-gfile{display:inline-flex;align-items:center;gap:10px;box-sizing:border-box;width:240px;min-height:56px;padding:8px 12px;border-radius:14px;border:.5px solid var(--bt-line-2);background:var(--bt-card);color:var(--bt-ink);font:inherit;text-align:start;cursor:pointer;transition:border-color .12s ease,background-color .12s ease}
+.bt-gfile:hover{border-color:var(--bt-accent);background:var(--bt-hover)}
+.bt-gfile:focus-visible{outline:2px solid var(--bt-accent);outline-offset:-2px}
+.bt-gfile-icon{flex:none;width:28px;height:28px}
+.bt-gfile-text{display:flex;flex-direction:column;min-width:0;flex:1}
+.bt-gfile-name{font-size:14px;line-height:22px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt-gfile-meta{font-size:12px;line-height:15px;color:var(--bt-ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt-gfile-open{flex:none;display:inline-flex;color:var(--bt-ink-3)}
+.bt-gfile-open svg{width:16px;height:16px}
 .bt-x{border:0;background:none;color:var(--bt-ink-2);cursor:pointer;width:24px;height:24px;border-radius:6px;font-size:16px;line-height:24px;padding:0;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
 .bt-x:hover{background:var(--bt-hover);color:var(--bt-ink)}
 
@@ -3907,6 +3936,7 @@ function useFold(text, { limit = FOLD_AT, whole, live = false, markdown = true }
 var import_react7 = require("react");
 var import_react_dom = require("react-dom");
 var import_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
+var ui = __toESM(require("@deepseek-ai/dsh-client-ui-primitives"), 1);
 var mdLabels = () => ({ code: { copyLabel: t("Copy"), copiedLabel: t("Copied") }, footnotes: t("Footnotes") });
 function Bubbles({ texts: texts2, roster, selfId, actions, streaming, sessionId, msgKey, useUi, lead, mentions, fold = FOLD_AT, whole }) {
   const onClick = (event) => {
@@ -4142,7 +4172,7 @@ function EventLine({ prefix, bots, joiner = t("and"), onOpen, whole = false }) {
   });
   return (0, import_react7.createElement)("div", { className: "bt-event" }, parts);
 }
-function GroupMessage({ bot, text, texts: texts2 = [text], room: room2, roster, actions, msgKey, useUi, whole }) {
+function GroupMessage({ bot, text, texts: texts2 = [text], files = [], room: room2, roster, actions, msgKey, useUi, whole }) {
   const lead = (0, import_react7.createElement)(
     "button",
     { type: "button", className: "bt-lead", "aria-label": t("Open {name}'s chat", { name: bot.name }), onClick: () => actions.openSession(bot.id) },
@@ -4157,8 +4187,26 @@ function GroupMessage({ bot, text, texts: texts2 = [text], room: room2, roster, 
       bot.name,
       room2?.admin === bot.id ? (0, import_react7.createElement)("span", { className: "bt-group-role" }, t("Admin")) : null
     ),
+    files.length > 0 ? (0, import_react7.createElement)(GroupFiles, { files, actions }) : null,
     (0, import_react7.createElement)(Bubbles, { texts: texts2, roster, selfId: bot.id, actions, sessionId: room2?.id, msgKey, useUi, lead, whole })
   );
+}
+function GroupFiles({ files, actions }) {
+  return (0, import_react7.createElement)("div", { className: "bt-gfiles" }, files.map((file, index) => {
+    const meta = [ui.fileExtension?.(file.name)?.toUpperCase().slice(0, 8), ui.fileSizeText?.(file.bytes)].filter(Boolean).join(" · ");
+    return (0, import_react7.createElement)(
+      "button",
+      { key: index, type: "button", className: "bt-gfile", title: file.name, "aria-label": t("Open {name}", { name: file.name }), onClick: () => actions.openFile(file) },
+      ui.FileTypeIcon ? (0, import_react7.createElement)(ui.FileTypeIcon, { path: file.name, className: "bt-gfile-icon" }) : null,
+      (0, import_react7.createElement)(
+        "span",
+        { className: "bt-gfile-text" },
+        (0, import_react7.createElement)("span", { className: "bt-gfile-name" }, file.name),
+        meta ? (0, import_react7.createElement)("span", { className: "bt-gfile-meta" }, meta) : null
+      ),
+      (0, import_react7.createElement)("span", { className: "bt-gfile-open" }, (0, import_react7.createElement)(DownloadIcon))
+    );
+  }));
 }
 function stackReplies(replies) {
   const items = [];
@@ -4331,11 +4379,13 @@ function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnClock, us
         if (source.failed !== void 0 || source.resumed === true || source.stopped === true || source.done === true) return null;
         const room2 = roster.roomsById[sessionId];
         const poster = roster.byId[source.senderSessionId] ?? { id: source.senderSessionId, name: source.senderName ?? t("a Bot"), color: "gray" };
-        const file = source.length === void 0 ? void 0 : (data.content ?? []).find((block) => block?.type === "file")?.attachment;
+        const attachments = (data.content ?? []).filter((block) => block?.type === "file" && block.attachment !== void 0).map((block) => block.attachment);
+        const file = source.length === void 0 ? void 0 : attachments.shift();
         const text = stripHeader(contentText(data.content));
         return (0, import_react7.createElement)(GroupMessage, {
           bot: poster,
           text: file ? stripLongNote(text) : text,
+          files: attachments,
           room: room2,
           roster,
           actions,
@@ -12514,7 +12564,7 @@ var DIALOG_EXIT_MS = 160;
 var MENU_EXIT_MS3 = 120;
 function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity, useWork, useRegistry, useBrowserPages, useBrowserTabs, useUpdate, actions }) {
   const roster = useRoster((value) => value);
-  const ui2 = useUi((value) => value);
+  const ui3 = useUi((value) => value);
   useRegistry((value) => value);
   const current = useSessions((list) => Object.values(list.byId).find((session) => (session?.retainedBy?.mainView ?? 0) > 0)?.id ?? null);
   const previous = (0, import_react35.useRef)(current);
@@ -12523,7 +12573,7 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
     previous.current = current;
     if (current) actions.followPanel?.(current);
   }, [current]);
-  const open = ui2.details ? { id: ui2.details, view: ui2.view ?? "details", renaming: ui2.renaming, tab: ui2.tab } : null;
+  const open = ui3.details ? { id: ui3.details, view: ui3.view ?? "details", renaming: ui3.renaming, tab: ui3.tab } : null;
   const [kept, setKept] = (0, import_react35.useState)(open);
   (0, import_react35.useEffect)(() => {
     if (open) {
@@ -12532,19 +12582,19 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
     }
     const timer = setTimeout(() => setKept(null), PANEL_LINGER_MS);
     return () => clearTimeout(timer);
-  }, [ui2.details, ui2.view, ui2.renaming, ui2.tab]);
+  }, [ui3.details, ui3.view, ui3.renaming, ui3.tab]);
   const pane = open ?? kept;
-  const [settings, settingsLeaving] = useLinger(ui2.settings, DIALOG_EXIT_MS);
-  const [memory, memoryLeaving] = useLinger(ui2.memory && roster.byId[ui2.memory] ? ui2.memory : null, DIALOG_EXIT_MS);
-  const [menu, menuLeaving] = useLinger(ui2.menu, MENU_EXIT_MS3);
+  const [settings, settingsLeaving] = useLinger(ui3.settings, DIALOG_EXIT_MS);
+  const [memory, memoryLeaving] = useLinger(ui3.memory && roster.byId[ui3.memory] ? ui3.memory : null, DIALOG_EXIT_MS);
+  const [menu, menuLeaving] = useLinger(ui3.menu, MENU_EXIT_MS3);
   return (0, import_react35.createElement)(
     import_react35.Fragment,
     null,
     pane ? (0, import_react_dom9.createPortal)((0, import_react35.createElement)(BotPanel, { pane, leaving: open === null, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages }), document.body) : null,
-    ui2.newChat ? (0, import_react_dom9.createPortal)((0, import_react35.createElement)(NewChat, { key: ui2.newChat, mode: ui2.newChat, roster, actions }), document.body) : null,
-    ui2.palette ? (0, import_react_dom9.createPortal)((0, import_react35.createElement)(CommandPalette, { key: ui2.palette.token, start: ui2.palette.query, token: ui2.palette.token, roster, actions, useSessions }), document.body) : null,
-    ui2.exchange ? (0, import_react_dom9.createPortal)((0, import_react35.createElement)(ExchangeDialog, { pair: ui2.exchange, roster, actions }), document.body) : null,
-    ui2.voice ? (0, import_react_dom9.createPortal)((0, import_react35.createElement)(VoiceMode, { key: ui2.voice, sessionId: ui2.voice, roster, actions, useSessions, useSessionStatus }), document.body) : null,
+    ui3.newChat ? (0, import_react_dom9.createPortal)((0, import_react35.createElement)(NewChat, { key: ui3.newChat, mode: ui3.newChat, roster, actions }), document.body) : null,
+    ui3.palette ? (0, import_react_dom9.createPortal)((0, import_react35.createElement)(CommandPalette, { key: ui3.palette.token, start: ui3.palette.query, token: ui3.palette.token, roster, actions, useSessions }), document.body) : null,
+    ui3.exchange ? (0, import_react_dom9.createPortal)((0, import_react35.createElement)(ExchangeDialog, { pair: ui3.exchange, roster, actions }), document.body) : null,
+    ui3.voice ? (0, import_react_dom9.createPortal)((0, import_react35.createElement)(VoiceMode, { key: ui3.voice, sessionId: ui3.voice, roster, actions, useSessions, useSessionStatus }), document.body) : null,
     menu ? (0, import_react_dom9.createPortal)((0, import_react35.createElement)(ContextMenu, { key: `${menu.kind ?? ""}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, leaving: menuLeaving }), document.body) : null,
     settings ? (0, import_react_dom9.createPortal)((0, import_react35.createElement)(SettingsDialog, { page: settings.page, id: settings.id, roster, actions, useUpdate, leaving: settingsLeaving }), document.body) : null,
     memory && roster.byId[memory] ? (0, import_react_dom9.createPortal)((0, import_react35.createElement)(MemoryDialog, { key: memory, bot: roster.byId[memory], actions, leaving: memoryLeaving }), document.body) : null
@@ -13439,8 +13489,8 @@ function writeMode(mode, storage = globalThis.localStorage) {
 
 // src/client/user-message.js
 var import_react36 = require("react");
-var ui = __toESM(require("@deepseek-ai/dsh-client-ui-primitives"), 1);
-var canDrawUserMessages = () => typeof ui.projectUserText === "function";
+var ui2 = __toESM(require("@deepseek-ai/dsh-client-ui-primitives"), 1);
+var canDrawUserMessages = () => typeof ui2.projectUserText === "function";
 function contentParts(content) {
   const texts2 = [];
   const attachments = [];
@@ -13475,7 +13525,7 @@ function UserText({ text, bots, referenceLabels, skillNames, references, actions
     { key: index, type: "button", className: "bt-umention", title: `@${part.bot.name}`, onClick: () => actions.openSession(part.bot.id) },
     (0, import_react36.createElement)(BotMark, { bot: part.bot, size: 16 }),
     part.label
-  ) : (0, import_react36.createElement)(import_react36.Fragment, { key: index }, ui.projectUserText(part.text, referenceLabels, skillNames, "skill", references)));
+  ) : (0, import_react36.createElement)(import_react36.Fragment, { key: index }, ui2.projectUserText(part.text, referenceLabels, skillNames, "skill", references)));
 }
 function Attachments({ attachments, renderMessageImages }) {
   const compact2 = attachments.length > 1;
@@ -13484,11 +13534,11 @@ function Attachments({ attachments, renderMessageImages }) {
       return renderMessageImages ? (0, import_react36.createElement)(import_react36.Fragment, { key: index }, renderMessageImages({ images: [{ attachment: block.attachment }], align: "end", compact: compact2 })) : null;
     }
     const file = block.attachment;
-    const meta = [ui.fileExtension?.(file.name)?.toUpperCase().slice(0, 8), ui.fileSizeText?.(file.bytes)].filter(Boolean).join(" · ");
+    const meta = [ui2.fileExtension?.(file.name)?.toUpperCase().slice(0, 8), ui2.fileSizeText?.(file.bytes)].filter(Boolean).join(" · ");
     return (0, import_react36.createElement)(
       "span",
       { key: index, className: "bt-ufile", title: file.name },
-      ui.FileTypeIcon ? (0, import_react36.createElement)(ui.FileTypeIcon, { path: file.name, className: "bt-ufile-icon" }) : null,
+      ui2.FileTypeIcon ? (0, import_react36.createElement)(ui2.FileTypeIcon, { path: file.name, className: "bt-ufile-icon" }) : null,
       (0, import_react36.createElement)("span", { className: "bt-ufile-text" }, (0, import_react36.createElement)("span", { className: "bt-ufile-name" }, file.name), meta ? (0, import_react36.createElement)("span", { className: "bt-ufile-meta" }, meta) : null)
     );
   }));
@@ -13525,7 +13575,7 @@ function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageIma
         { className: "bt-ubody", title: clock3(data.time), "data-folded": folded || void 0 },
         control ? (0, import_react36.createElement)("div", { className: "bt-fold-body" }, body) : body,
         control,
-        rest.map((block, index) => ui.JsonBlock ? (0, import_react36.createElement)(ui.JsonBlock, { key: index, label: t("Content"), payload: block }) : null)
+        rest.map((block, index) => ui2.JsonBlock ? (0, import_react36.createElement)(ui2.JsonBlock, { key: index, label: t("Content"), payload: block }) : null)
       ) : null,
       referenceLabels.length > 0 ? (0, import_react36.createElement)("div", { className: "bt-urefs" }, t("Referenced {labels}", { labels: referenceLabels.join(t(", ")) })) : null
     ),
@@ -13593,7 +13643,7 @@ function apply(ctx) {
   const reactionStore = sharedMap(STORAGE.reactions);
   const seenStore = sharedMap(STORAGE.seen);
   let seenAt = seenStore.read();
-  const ui2 = createSource({ details: null, view: "details", renaming: false, tab: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {} });
+  const ui3 = createSource({ details: null, view: "details", renaming: false, tab: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {} });
   const surface = createSource({ mode: readMode(), plain: false });
   let agentSessionCache = /* @__PURE__ */ new Set();
   try {
@@ -13611,21 +13661,21 @@ function apply(ctx) {
   };
   let expected = null;
   const setPlain = (plain) => surface.set((state) => state.plain === plain ? state : { ...state, plain });
-  const dropPanels = () => ui2.set((state) => state.details || state.renaming ? { ...state, details: null, view: "details", renaming: false, tab: null } : state);
+  const dropPanels = () => ui3.set((state) => state.details || state.renaming ? { ...state, details: null, view: "details", renaming: false, tab: null } : state);
   const seenKey = (id) => roster.getSnapshot().byId?.[id]?.id ?? id;
   const leaveVisits = (ids) => {
     seenAt = seenStore.update((seen) => noteLeft(seen, ids.map(seenKey), Date.now()), seenAt);
   };
   ctx.effect(() => {
-    const onPageHide = () => leaveVisits(Object.keys(ui2.getSnapshot().visits ?? {}));
+    const onPageHide = () => leaveVisits(Object.keys(ui3.getSnapshot().visits ?? {}));
     window.addEventListener("pagehide", onPageHide);
     return () => window.removeEventListener("pagehide", onPageHide);
   }, "ds-bot: remember visits on page hide");
   ctx.effect(() => {
     const onStorage = (event) => {
       if (event.storageArea !== localStorage) return;
-      if (event.key === null || event.key === unreadStore.key) ui2.set((state) => ({ ...state, unread: unreadStore.read(state.unread) }));
-      if (event.key === null || event.key === reactionStore.key) ui2.set((state) => ({ ...state, reactions: reactionStore.read(state.reactions) }));
+      if (event.key === null || event.key === unreadStore.key) ui3.set((state) => ({ ...state, unread: unreadStore.read(state.unread) }));
+      if (event.key === null || event.key === reactionStore.key) ui3.set((state) => ({ ...state, reactions: reactionStore.read(state.reactions) }));
       if (event.key === null || event.key === seenStore.key) seenAt = seenStore.read(seenAt);
     };
     window.addEventListener("storage", onStorage);
@@ -13658,8 +13708,8 @@ function apply(ctx) {
     savedPrefs = {};
   }
   const writeUnread = (id, value) => {
-    const unread = unreadStore.update((marks) => setUnread(marks, id, value), ui2.getSnapshot().unread);
-    ui2.set((state) => JSON.stringify(state.unread) === JSON.stringify(unread) ? state : { ...state, unread });
+    const unread = unreadStore.update((marks) => setUnread(marks, id, value), ui3.getSnapshot().unread);
+    ui3.set((state) => JSON.stringify(state.unread) === JSON.stringify(unread) ? state : { ...state, unread });
   };
   const refreshed = /* @__PURE__ */ new Set();
   let pulls = 0;
@@ -13787,7 +13837,7 @@ function apply(ctx) {
           stopReads = null;
         }
         void browsers.retain(snapshot.bots.map((bot) => bot.id));
-        ui2.set((state) => state.details && state.view === "browser" && (!on || !snapshot.byId[state.details]) ? { ...state, view: "details" } : state);
+        ui3.set((state) => state.details && state.view === "browser" && (!on || !snapshot.byId[state.details]) ? { ...state, view: "details" } : state);
       };
       sync();
       const offRoster = roster.subscribe(sync);
@@ -13906,7 +13956,7 @@ function apply(ctx) {
     isAgentSession: (id) => isAgentSessionId(id),
     openSession: (id) => {
       if (isAgentSessionId(id)) return actions.openAgentSession(id);
-      ui2.set((state) => state.newChat || state.exchange || state.menu || state.palette ? { ...state, newChat: null, exchange: null, menu: null, palette: null } : state);
+      ui3.set((state) => state.newChat || state.exchange || state.menu || state.palette ? { ...state, newChat: null, exchange: null, menu: null, palette: null } : state);
       setPlain(false);
       const target = partFor(id);
       expected = target;
@@ -13915,7 +13965,7 @@ function apply(ctx) {
     // The conversation replacements withdraw for a plain Session; set the surface
     // before the navigation so the Bot skin never flashes.
     openAgentSession: (sessionId) => {
-      ui2.set((state) => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, details: null, view: "details", renaming: false, tab: null }));
+      ui3.set((state) => ({ ...state, newChat: null, exchange: null, menu: null, palette: null, details: null, view: "details", renaming: false, tab: null }));
       setPlain(true);
       expected = sessionId;
       ctx.uiWorkspace.openSession(sessionId);
@@ -13956,8 +14006,8 @@ function apply(ctx) {
       else if (roster.getSnapshot().mainBotId) actions.openSession(roster.getSnapshot().mainBotId);
     },
     renameAgentSession: (agentId, sessionId, title) => after(call("agent-rename", { agentId, sessionId, title })),
-    beginAgentRename: (sessionId) => ui2.set((state) => ({ ...state, renameAgent: sessionId })),
-    endAgentRename: () => ui2.set((state) => state.renameAgent ? { ...state, renameAgent: null } : state),
+    beginAgentRename: (sessionId) => ui3.set((state) => ({ ...state, renameAgent: sessionId })),
+    endAgentRename: () => ui3.set((state) => state.renameAgent ? { ...state, renameAgent: null } : state),
     // Removing the Agent archives every Session it owns; one of them may fill the
     // main view, and it must not stay there wearing the Bot surface afterwards.
     removeAgent: async (agentId) => {
@@ -13986,26 +14036,26 @@ function apply(ctx) {
       ctx.layout.toggleSidebar();
     },
     openNewChat: (mode) => {
-      ui2.set((state) => ({ ...state, newChat: mode, menu: null, palette: null }));
+      ui3.set((state) => ({ ...state, newChat: mode, menu: null, palette: null }));
     },
     openPalette: (query = "") => {
-      ui2.set((state) => ({ ...state, palette: { query, token: Date.now() }, newChat: null, menu: null }));
+      ui3.set((state) => ({ ...state, palette: { query, token: Date.now() }, newChat: null, menu: null }));
     },
     // The token keeps a late exit timer from closing a palette opened again since.
     closePalette: (token) => {
-      ui2.set((state) => state.palette && (token === void 0 || state.palette.token === token) ? { ...state, palette: null } : state);
+      ui3.set((state) => state.palette && (token === void 0 || state.palette.token === token) ? { ...state, palette: null } : state);
     },
     openExchange: (a, b) => {
-      if (a && b) ui2.set((state) => ({ ...state, exchange: [a, b] }));
+      if (a && b) ui3.set((state) => ({ ...state, exchange: [a, b] }));
     },
     openVoice: (id) => {
-      if (id) ui2.set((state) => ({ ...state, voice: id, menu: null }));
+      if (id) ui3.set((state) => ({ ...state, voice: id, menu: null }));
     },
     closeVoice: () => {
-      ui2.set((state) => state.voice ? { ...state, voice: null } : state);
+      ui3.set((state) => state.voice ? { ...state, voice: null } : state);
     },
     toggleDetails: (id, force) => {
-      ui2.set((state) => {
+      ui3.set((state) => {
         const details = force || state.details !== id || state.view !== "details" ? id : null;
         return { ...state, renaming: false, tab: null, details, view: "details" };
       });
@@ -14013,34 +14063,34 @@ function apply(ctx) {
     // The open panel follows the main view; a subject with no browser (a group
     // chat, an outside Session) settles on the details view.
     followPanel: (id) => {
-      ui2.set((state) => {
+      ui3.set((state) => {
         if (!state.details || state.details === id) return state;
         const view = state.view === "browser" && roster.getSnapshot().byId[id] === void 0 ? "details" : state.view;
         return { ...state, details: id, view, renaming: false, tab: null };
       });
     },
     showDetails: (id, tab = null) => {
-      ui2.set((state) => ({ ...state, details: id, view: "details", renaming: false, tab }));
+      ui3.set((state) => ({ ...state, details: id, view: "details", renaming: false, tab }));
     },
     // Opening the conversation would move focus to its composer and blur the name field.
     renameBot: (id) => {
-      ui2.set((state) => ({ ...state, details: id, view: "details", renaming: true, tab: null }));
+      ui3.set((state) => ({ ...state, details: id, view: "details", renaming: true, tab: null }));
     },
     // `id` opens one Bot (page 'bots') or one group chat (page 'groups').
     openSettings: (page = "general", id = null) => {
-      ui2.set((state) => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null }));
+      ui3.set((state) => ({ ...state, settings: { page, id }, menu: null, palette: null, newChat: null }));
     },
     closeSettings: () => {
-      ui2.set((state) => state.settings ? { ...state, settings: null } : state);
+      ui3.set((state) => state.settings ? { ...state, settings: null } : state);
     },
     openMemory: (botId) => {
-      ui2.set((state) => ({ ...state, memory: botId, menu: null, palette: null }));
+      ui3.set((state) => ({ ...state, memory: botId, menu: null, palette: null }));
     },
     closeMemory: () => {
-      ui2.set((state) => state.memory ? { ...state, memory: null } : state);
+      ui3.set((state) => state.memory ? { ...state, memory: null } : state);
     },
     openConnectors: () => {
-      ui2.set((state) => ({ ...state, settings: { page: "connectors", id: null }, menu: null, palette: null, newChat: null }));
+      ui3.set((state) => ({ ...state, settings: { page: "connectors", id: null }, menu: null, palette: null, newChat: null }));
     },
     // Agent mode hands the surface back to the shell; everything open on the Bot
     // surface closes first so nothing stale reopens on the way back.
@@ -14048,7 +14098,7 @@ function apply(ctx) {
       if (mode !== "bot" && mode !== "agent") return;
       if (surface.getSnapshot().mode === mode) return;
       if (mode === "agent") {
-        ui2.set((state) => ({ ...state, details: null, view: "details", settings: null, palette: null, newChat: null, menu: null, voice: null, exchange: null, memory: null, toast: null }));
+        ui3.set((state) => ({ ...state, details: null, view: "details", settings: null, palette: null, newChat: null, menu: null, voice: null, exchange: null, memory: null, toast: null }));
       }
       writeMode(mode);
       surface.set((state) => ({ ...state, mode }));
@@ -14075,11 +14125,11 @@ function apply(ctx) {
     beginVisit: (id) => {
       const made = roster.getSnapshot().byId[id] ?? roster.getSnapshot().roomsById[id];
       const seen = seenAt[seenKey(id)] ?? (made?.createdBy && Number.isFinite(made.createdAt) ? made.createdAt : null);
-      ui2.set((state) => ({ ...state, visits: { ...state.visits, [id]: { seen, entered: Date.now() } } }));
+      ui3.set((state) => ({ ...state, visits: { ...state.visits, [id]: { seen, entered: Date.now() } } }));
     },
     endVisit: (id) => {
       leaveVisits([id]);
-      ui2.set((state) => {
+      ui3.set((state) => {
         if (!(id in (state.visits ?? {}))) return state;
         const visits = { ...state.visits };
         delete visits[id];
@@ -14087,22 +14137,22 @@ function apply(ctx) {
       });
     },
     toggleReaction: (key, index, emoji) => {
-      const reactions = reactionStore.update((saved) => toggleReaction(saved, key, index, emoji), ui2.getSnapshot().reactions);
-      ui2.set((state) => ({ ...state, reactions }));
+      const reactions = reactionStore.update((saved) => toggleReaction(saved, key, index, emoji), ui3.getSnapshot().reactions);
+      ui3.set((state) => ({ ...state, reactions }));
     },
-    quote: (sessionId, text) => ui2.set((state) => ({ ...state, quote: { sessionId, text, token: Date.now() } })),
-    clearQuote: (token) => ui2.set((state) => state.quote?.token === token ? { ...state, quote: null } : state),
+    quote: (sessionId, text) => ui3.set((state) => ({ ...state, quote: { sessionId, text, token: Date.now() } })),
+    clearQuote: (token) => ui3.set((state) => state.quote?.token === token ? { ...state, quote: null } : state),
     clearUnread: (id) => writeUnread(id, false),
     setFlags: (id, flags) => after(call("set-flags", { id, ...flags })),
     deleteRoom: (id) => after(call("delete-room", { id })),
     openMenu: (menu) => {
-      ui2.set((state) => ({ ...state, menu }));
+      ui3.set((state) => ({ ...state, menu }));
     },
     closeMenu: () => {
-      ui2.set((state) => state.menu ? { ...state, menu: null } : state);
+      ui3.set((state) => state.menu ? { ...state, menu: null } : state);
     },
     closeOverlay: () => {
-      ui2.set((state) => ({ ...state, newChat: null, exchange: null, details: state.newChat || state.exchange ? state.details : null }));
+      ui3.set((state) => ({ ...state, newChat: null, exchange: null, details: state.newChat || state.exchange ? state.details : null }));
     },
     createBot: (payload) => after(call("create-bot", payload)),
     createRoom: (members, options = {}) => after(call("create-room", { members, ...options })),
@@ -14142,6 +14192,19 @@ function apply(ctx) {
     exchange: (a, b) => call("exchange", { a, b }).catch(() => []),
     exchangeText: (id) => call("exchange-text", { id }).catch(() => void 0),
     fileText: (file) => call("file-text", { file }).catch(() => void 0),
+    // A group chat's file chip (send_file): the bytes come back as a download, which
+    // the browser opens with the file's own app or saves.
+    openFile: async (file) => {
+      try {
+        const response = await callFile("file-open", { file });
+        const url = URL.createObjectURL(await response.blob());
+        const link = Object.assign(document.createElement("a"), { href: url, download: file?.name ?? "file" });
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1e3);
+      } catch (error) {
+        actions.reportError(error, "open-file");
+      }
+    },
     roomProgress: (roomId) => call("room-progress", { roomId }).catch(() => []),
     earlier: (sessionId, cursor) => call("earlier", { sessionId, cursor: cursor ?? null }),
     // Hours come back in this browser's time zone, so days start at local midnight.
@@ -14165,9 +14228,9 @@ function apply(ctx) {
     // A failed action away from any form (a menu, the palette) shows as a toast.
     reportError: (error, where = "action") => {
       noteClientError(where, error);
-      ui2.set((state) => ({ ...state, toast: { text: error?.message ?? String(error), token: Date.now() } }));
+      ui3.set((state) => ({ ...state, toast: { text: error?.message ?? String(error), token: Date.now() } }));
     },
-    dismissToast: (token) => ui2.set((state) => state.toast && (token === void 0 || state.toast.token === token) ? { ...state, toast: null } : state)
+    dismissToast: (token) => ui3.set((state) => state.toast && (token === void 0 || state.toast.token === token) ? { ...state, toast: null } : state)
   };
   if (browsers) {
     Object.assign(actions, {
@@ -14177,7 +14240,7 @@ function apply(ctx) {
         if (!bot) return;
         browsers.ensureTabs(bot.id);
         if (browsers.tabs.getSnapshot()[bot.id]?.active == null) browsers.openTab(bot.id);
-        ui2.set((state) => ({ ...state, details: id, view: "browser", renaming: false, tab: null }));
+        ui3.set((state) => ({ ...state, details: id, view: "browser", renaming: false, tab: null }));
       },
       // '+' on the strip or the drawer's new-tab card: a blank tab in the browser view.
       browserNewTab: (id) => {
@@ -14185,7 +14248,7 @@ function apply(ctx) {
         if (!bot) return null;
         browsers.ensureTabs(bot.id);
         const tabId = browsers.openTab(bot.id);
-        ui2.set((state) => ({ ...state, details: id, view: "browser", renaming: false, tab: null }));
+        ui3.set((state) => ({ ...state, details: id, view: "browser", renaming: false, tab: null }));
         return tabId;
       },
       // A drawer card: its tab active, the panel on the browser view.
@@ -14193,7 +14256,7 @@ function apply(ctx) {
         const bot = roster.getSnapshot().byId[id];
         if (!bot) return;
         browsers.activate(bot.id, tabId);
-        ui2.set((state) => ({ ...state, details: id, view: "browser" }));
+        ui3.set((state) => ({ ...state, details: id, view: "browser" }));
       },
       browserEnsure: (botId) => browsers.ensureTabs(botId),
       browserCloseTab: (botId, tabId) => browsers.closeTab(botId, tabId),
@@ -14206,22 +14269,22 @@ function apply(ctx) {
   }
   actions.setPanelView = (view) => {
     if (view !== "details" && view !== "browser") return;
-    ui2.set((state) => state.details && state.view !== view ? { ...state, view } : state);
+    ui3.set((state) => state.details && state.view !== view ? { ...state, view } : state);
   };
   actions.closePanel = () => {
-    ui2.set((state) => state.details ? { ...state, details: null, view: "details", renaming: false, tab: null } : state);
+    ui3.set((state) => state.details ? { ...state, details: null, view: "details", renaming: false, tab: null } : state);
   };
   actions.signInEntry = () => ctx.slots.entries?.("settings.models.sign-in")?.[0] ?? null;
   actions.canSignIn = () => Boolean(actions.signInEntry());
-  actions.signIn = () => ui2.set((state) => ({ ...state, signIn: (state.signIn ?? 0) + 1 }));
-  actions.closeSignIn = () => ui2.set((state) => ({ ...state, signIn: null }));
+  actions.signIn = () => ui3.set((state) => ({ ...state, signIn: (state.signIn ?? 0) + 1 }));
+  actions.closeSignIn = () => ui3.set((state) => ({ ...state, signIn: null }));
   actions.accountT = () => ctx.get("locale").bind("settings.account");
   actions.speech = () => ctx.get("remote.speech") ?? void 0;
   actions.voiceSetup = () => {
     const navigation = ctx.get("pluginNavigation");
     return navigation ? () => navigation.openBundle(VOICE_BUNDLE) : null;
   };
-  actions.seatAccount = (on) => ui2.set((state) => state.accountSeated === on ? state : { ...state, accountSeated: on });
+  actions.seatAccount = (on) => ui3.set((state) => state.accountSeated === on ? state : { ...state, accountSeated: on });
   actions.installUpdate = async () => {
     const value = await call("update-install");
     update.set((previous) => ({ ...previous, ...value }));
@@ -14285,7 +14348,7 @@ function apply(ctx) {
   });
   const browserPages = browsers?.pages ?? createSource({});
   const browserTabs = browsers?.tabs ?? createSource({});
-  const face = () => ({ actions, hooks: { roster, ui: ui2, activity, work, memoryNews, registry, turnClock, live, cards, browserPages, browserTabs, surface, update } });
+  const face = () => ({ actions, hooks: { roster, ui: ui3, activity, work, memoryNews, registry, turnClock, live, cards, browserPages, browserTabs, surface, update } });
   ctx.effect(() => noticeApprovals({
     work,
     roster,

@@ -1,6 +1,7 @@
 import { createElement as h, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
+import * as ui from '@deepseek-ai/dsh-client-ui-primitives'
 import { inkText } from './inks.js'
 import { linkMentions, mentionTarget, dayLabel, contentText, stripHeader, isHiddenTurn, isRelayContext, relaysBefore, relayPart, commRunOf, toolName, toolArgs, reminderPrompts } from './text.js'
 import { SmileIcon, ReplyIcon, DotsIcon, CheckIcon, DownloadIcon, CopyIcon, MemoryIcon } from './icons.js'
@@ -203,13 +204,28 @@ function EventLine({ prefix, bots, joiner = t('and'), onOpen, whole = false }) {
 }
 
 // One Bot message inside a group chat: avatar, name (with its group role), bubble.
-function GroupMessage({ bot, text, texts = [text], room, roster, actions, msgKey, useUi, whole }) {
+function GroupMessage({ bot, text, texts = [text], files = [], room, roster, actions, msgKey, useUi, whole }) {
   const lead = h('button', { type: 'button', className: 'bt-lead', 'aria-label': t("Open {name}'s chat", { name: bot.name }), onClick: () => actions.openSession(bot.id) },
     h(BotMark, { bot, size: 22 }))
   return h('div', { className: 'bt-group-msg' },
     h('span', { className: 'bt-group-name', style: { color: inkText(colorOf(bot)) } }, bot.name,
       room?.admin === bot.id ? h('span', { className: 'bt-group-role' }, t('Admin')) : null),
+    files.length > 0 ? h(GroupFiles, { files, actions }) : null,
     h(Bubbles, { texts, roster, selfId: bot.id, actions, sessionId: room?.id, msgKey, useUi, lead, whole }))
+}
+
+// Files a Bot sent into the group (send_file), which the user opens from the chat: the
+// bytes come from the host on a click, so a chip works without a path on the screen.
+function GroupFiles({ files, actions }) {
+  return h('div', { className: 'bt-gfiles' }, files.map((file, index) => {
+    const meta = [ui.fileExtension?.(file.name)?.toUpperCase().slice(0, 8), ui.fileSizeText?.(file.bytes)].filter(Boolean).join(' · ')
+    return h('button', { key: index, type: 'button', className: 'bt-gfile', title: file.name, 'aria-label': t('Open {name}', { name: file.name }), onClick: () => actions.openFile(file) },
+      ui.FileTypeIcon ? h(ui.FileTypeIcon, { path: file.name, className: 'bt-gfile-icon' }) : null,
+      h('span', { className: 'bt-gfile-text' },
+        h('span', { className: 'bt-gfile-name' }, file.name),
+        meta ? h('span', { className: 'bt-gfile-meta' }, meta) : null),
+      h('span', { className: 'bt-gfile-open' }, h(DownloadIcon)))
+  }))
 }
 
 // A member's messages in a row, as one block under its name: what it says while it
@@ -395,12 +411,14 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
         if (source.failed !== undefined || source.resumed === true || source.stopped === true || source.done === true) return null
         const room = roster.roomsById[sessionId]
         const poster = roster.byId[source.senderSessionId] ?? { id: source.senderSessionId, name: source.senderName ?? t('a Bot'), color: 'gray' }
-        // A post past what a message holds came as a file, with its start only.
-        const file = source.length === undefined ? undefined : (data.content ?? []).find(block => block?.type === 'file')?.attachment
+        // A post past what a message holds came as a file (attachLong), with its start
+        // only; any other file is one the Bot sent for the user to open (send_file).
+        const attachments = (data.content ?? []).filter(block => block?.type === 'file' && block.attachment !== undefined).map(block => block.attachment)
+        const file = source.length === undefined ? undefined : attachments.shift()
         const text = stripHeader(contentText(data.content))
         // A trigger's data carries no turn; its event seq is the one durable name of this post.
         return h(GroupMessage, {
-          bot: poster, text: file ? stripLongNote(text) : text, room, roster, actions, msgKey: `${sessionId}:post:${data.seq ?? node.key}`, useUi,
+          bot: poster, text: file ? stripLongNote(text) : text, files: attachments, room, roster, actions, msgKey: `${sessionId}:post:${data.seq ?? node.key}`, useUi,
           whole: file ? { length: source.length, load: () => actions.fileText(file) } : undefined,
         })
       }

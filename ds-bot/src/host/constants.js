@@ -63,12 +63,15 @@ export const AGENT_SESSION_TITLE_MAX = 80
 // Desktop profile, so a restriction filters this list down to registered names.
 export const TEAM_TOOLS = [
   'list_bots', 'message_bot', 'stop_bot', 'create_bot', 'update_bot', 'list_models',
-  'create_group', 'update_group', 'delete_group', 'post_to_group', 'ask_user',
+  'create_group', 'update_group', 'delete_group', 'post_to_group', 'send_file', 'ask_user',
   'request_secret', 'list_secrets', 'group_relay', 'read_own_chat',
   'read_group_chat', 'remember', 'forget', 'recall', 'read_browser',
   'list_capabilities', 'save_capability', 'delete_capability',
   'attach_capability', 'detach_capability',
 ]
+// The largest file a Bot may send into a group chat (send_file): the bytes are read
+// whole into the attachment store, so a size past this is refused rather than read.
+export const GROUP_FILE_MAX = 64 * 1024 * 1024
 // Answers a group gives to what members post after the round moved on (their finished
 // work, mostly), before the user speaks there again.
 export const ROOM_LATE_ROUNDS = 10

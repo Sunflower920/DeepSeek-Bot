@@ -53,6 +53,7 @@ test('apply registers listeners, tools, and effects in a fixed order', (t) => {
     'tool update_group',
     'tool delete_group',
     'tool post_to_group',
+    'tool send_file',
     'tool ask_user',
     'tools guard',
     'on agent/created',

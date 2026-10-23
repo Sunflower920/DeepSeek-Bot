@@ -25,6 +25,43 @@ export function install(rt) {
 
   const ok = value => ({ ok: true, value })
   const fail = (message, code = 'bot/error') => ({ ok: false, error: { code, message, details: {} } })
+  // A stored file's bytes, for the group chat's file chips (send_file): the answer
+  // envelope is JSON, so this one answers the request itself, as a download the
+  // browser opens or saves. Same read the text endpoint makes, so a read-only host
+  // serves files too.
+  const jsonFail = (message, code) => new Response(JSON.stringify(fail(message, code)), { status: 200, headers: { 'content-type': 'application/json' } })
+  const fileOpen = async (payload, signal) => {
+    const file = payload?.file
+    if (typeof file?.attachmentId !== 'string') return jsonFail('No file named', 'bot/invalid')
+    const attachments = ctx.get?.('attachments')
+    if (attachments === undefined) return jsonFail('This file cannot be read here', 'bot/unavailable')
+    const chunks = []
+    let bytes = 0
+    try {
+      for await (const chunk of attachments.readFileStream(file, signal)) {
+        chunks.push(chunk)
+        bytes += chunk.length
+      }
+    } catch (error) {
+      rt.warn('ds-bot: file %s not read: %s', file?.name, error)
+      return jsonFail('This file cannot be read here', 'bot/unavailable')
+    }
+    const data = new Uint8Array(bytes)
+    let at = 0
+    for (const chunk of chunks) { data.set(chunk, at); at += chunk.length }
+    const name = String(file.name ?? 'file')
+    // A header is a ByteString, so the plain fallback keeps printable ASCII only; the
+    // UTF-8 name rides in filename*, which every current reader takes first.
+    const plain = [...name].map(char => (/[ -~]/.test(char) ? char : '_')).join('')
+    const encoded = encodeURIComponent(name).replace(/['()]/g, char => `%${char.charCodeAt(0).toString(16).toUpperCase()}`)
+    return new Response(data, {
+      status: 200,
+      headers: {
+        'content-type': 'application/octet-stream',
+        'content-disposition': `attachment; filename="${plain}"; filename*=UTF-8''${encoded}`,
+      },
+    })
+  }
   // Models come from DSH, not state.json, so a provider added in Harness settings
   // changes the view without a new revision.
   const modelsKey = () => `${rt.cachedCatalog().map(entry => entry.reasoning ? `${entry.ref}:${JSON.stringify(entry.reasoning)}` : entry.ref).join(',')}|${rt.cachedDefault() ?? ''}`
@@ -351,6 +388,9 @@ export function install(rt) {
     fetch: async (request) => {
       let body
       try { body = await request.json() } catch { body = {} }
+      // A file's bytes cannot ride in the JSON envelope, so that endpoint answers the
+      // request itself.
+      if (body?.endpoint === 'file-open') return await fileOpen(body?.payload, request.signal)
       const result = await handle(String(body?.endpoint ?? ''), body?.payload, request.signal)
       return new Response(JSON.stringify(result), { status: 200, headers: { 'content-type': 'application/json' } })
     },
