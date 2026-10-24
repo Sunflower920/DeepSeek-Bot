@@ -9,6 +9,7 @@ import * as lifecycle from './src/host/lifecycle.js'
 import * as plans from './src/host/plans.js'
 import * as audit from './src/host/audit.js'
 import * as scan from './src/host/scan.js'
+import * as policies from './src/host/policies.js'
 import * as models from './src/host/models.js'
 import * as permissions from './src/host/permissions.js'
 import * as turns from './src/host/turns.js'
@@ -46,7 +47,7 @@ export const inject = ['llm', 'tools', 'systemPrompt', 'sessionController', 'ses
 // the functions other modules call; they call them through `rt` at run time, never during
 // install. Listeners run and tools are listed in registration order, so this order holds:
 // usage meters model requests after every listener that rewrites them.
-const MODULES = [diagnostics, store, events, lifecycle, plans, audit, scan, models, permissions, turns, handoffs, delivery, roster, folders, agents, prompt, timeContext, tools, chatIndex, groups, approvals, resume, memory, parts, images, secrets, connectors, capabilities, schedules, browser, usage, update, dshUpdate, channel]
+const MODULES = [diagnostics, store, events, lifecycle, plans, audit, scan, policies, models, permissions, turns, handoffs, delivery, roster, folders, agents, prompt, timeContext, tools, chatIndex, groups, approvals, resume, memory, parts, images, secrets, connectors, capabilities, schedules, browser, usage, update, dshUpdate, channel]
 
 export function apply(ctx, config = {}) {
   createRuntime(ctx, config)

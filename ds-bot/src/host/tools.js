@@ -323,6 +323,7 @@ export function install(rt) {
       color: { type: 'string', description: `One of ${[...COLORS, ...EXTRA_COLORS].join(', ')}` },
       model: { type: 'string', description: 'Move the Bot to another model, as provider/model or a model id' },
       work_dir: { ...WORK_DIR_PARAM, description: `${WORK_DIR_PARAM.description}; an empty string returns it to the team workspace` },
+      tool_policy: { type: 'string', description: 'Name of a declared tool policy this Bot works under; "all" or one of the declared names' },
     },
     output,
     async execute(args, exec) {
@@ -338,7 +339,12 @@ export function install(rt) {
         const moving = typeof args.work_dir === 'string'
         const workDir = moving ? await rt.cleanWorkDir(args.work_dir) : undefined
         if (moving && workDir !== bot.workDir) await rt.approveFolder(exec, { path: workDir, sessions: rt.sessionsOfBot(bot.id), who: { en: bot.name, zh: ` ${bot.name} ` } })
-        const next = await rt.updateBot(bot.id, { name: newName, role, instructions, color, ...(model ? { model } : {}), ...(moving ? { workDir: workDir ?? '' } : {}) })
+        const next = await rt.updateBot(bot.id, {
+          name: newName, role, instructions, color,
+          ...(model ? { model } : {}),
+          ...(moving ? { workDir: workDir ?? '' } : {}),
+          ...(args.tool_policy !== undefined ? { toolPolicy: args.tool_policy } : {}),
+        })
         if (!moving) return `Updated ${next.name}.`
         const folder = workDir ?? 'the team workspace'
         return bot.id === caller.id ? `Updated ${next.name}. From your next step on, you work in ${folder}.` : `Updated ${next.name}. It now works in ${folder}.`
@@ -427,6 +433,7 @@ export function install(rt) {
       status: { type: 'string', enum: ['halted', 'active'], description: '"halted" stops the group: members\' posts keep their place in the log but their @ names call nobody until it is resumed. "active" resumes it and needs a reason' },
       reason: { type: 'string', description: 'Why the group is halted or resumed; a resume without one is refused' },
       work_dir: { ...WORK_DIR_PARAM, description: `${WORK_DIR_PARAM.description}. Every member works there in this group; an empty string lets each member work in its own folder again (Main Bots only)` },
+      tool_policy: { type: 'string', description: 'Name of a declared tool policy work in this group is held to; "all" or one of the declared names (Main Bots only)' },
     },
     output,
     async execute(args, exec) {
@@ -470,6 +477,7 @@ export function install(rt) {
           add: add.bots.map(bot => bot.id),
           remove: remove.bots.map(bot => bot.id),
           ...(moving ? { workDir: workDir ?? '' } : {}),
+          ...(args.tool_policy !== undefined ? { toolPolicy: args.tool_policy } : {}),
         }, self)
         return changes.length === 0 ? `Nothing changed in "${next.name}".` : `Updated "${next.name}": ${changes.join('; ')}.`
       } catch (failure) {
@@ -565,6 +573,10 @@ export function install(rt) {
       if (sender === undefined) return 'Only Bots on the team can use send_file.'
       const { room, error } = pickRoom(args.group, self)
       if (error) return error
+      // A declared policy is a gate, not a hint: a Bot or group held to a set
+      // that omits this tool is refused, and the refusal names the policy.
+      const scope = { botId: self, roomId: room.id }
+      if (!rt.allowsTool?.('send_file', scope)) return rt.refusalFor('send_file', scope)
       // The group's folder first, then the sender's own, then the team workspace: where
       // its work already sits, which the user has already let it write.
       const roots = [...new Set([rt.workDirOf?.({ roomId: room.id }), rt.workDirOf?.({ botId: self }), rt.teamFolder?.()].filter(Boolean))]

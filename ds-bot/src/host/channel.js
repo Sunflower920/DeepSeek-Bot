@@ -164,6 +164,8 @@ export function install(rt) {
     // What was read out of the group's record, by whom, and its digest: one
     // source, so a claim about the material can be checked against it.
     audits: rt.auditsView(),
+    // Declared tool policies, and which Bot or group is held to which.
+    toolPolicies: state.toolPolicies ?? {},
     exchangeTurns: state.exchangeTurns,
     questions: state.questions,
     // The team's DSH Agent (at most one): plain dsh Sessions, not Bots.
@@ -304,6 +306,20 @@ export function install(rt) {
           const bot = await rt.createBot({ name: body.name, role: body.role, color: body.color, instructions: body.instructions, brief: body.brief, avatar: body.avatar, model: body.model, effort: body.effort, workDir: body.workDir })
           return ok(bot)
         }
+        case 'set-tool-policy': {
+          await rt.load()
+          const id = String(body.id ?? '').trim()
+          const tools = Array.isArray(body.tools) ? body.tools.map(String) : undefined
+          if (id === '') return bad('A tool policy needs a name')
+          if (tools === undefined || tools.length === 0) {
+            delete state.toolPolicies?.[id]
+          } else {
+            state.toolPolicies ??= {}
+            state.toolPolicies[id] = { tools, at: Date.now() }
+          }
+          await rt.save()
+          return ok(view())
+        }
         case 'update-bot':
           await rt.load()
           return ok(await rt.updateBot(body.id, body))
@@ -333,6 +349,7 @@ export function install(rt) {
             status: body.status,
             reason: body.reason,
             admin: body.admin,
+            ...(body.toolPolicy !== undefined ? { toolPolicy: body.toolPolicy } : {}),
             members: Array.isArray(body.members) ? body.members : undefined,
             add: Array.isArray(body.add) ? body.add : undefined,
             remove: Array.isArray(body.remove) ? body.remove : undefined,

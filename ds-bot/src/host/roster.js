@@ -3,6 +3,7 @@
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX } from './constants.js'
+import { POLICY_ALL } from './policies.js'
 import { currentColor, isColor, normalize, unquote } from './text.js'
 import { nameKey, nameProblem } from '../shared/mentions.js'
 
@@ -216,6 +217,15 @@ export function install(rt) {
     // Checked first, so a folder that does not pass leaves the rest unchanged too.
     const moving = patch.workDir !== undefined
     const workDir = moving ? await rt.cleanWorkDir(patch.workDir ?? '') : undefined
+    // An undeclared policy fails here, at the moment it is set: falling back to
+    // "everything" would make the restriction decoration.
+    if (patch.toolPolicy !== undefined && !rt.isDeclaredPolicy?.(patch.toolPolicy)) {
+      throw new Error(rt.policyError?.(patch.toolPolicy, rt.declaredPolicies?.() ?? []) ?? `No tool policy named ${patch.toolPolicy}`)
+    }
+    if (patch.toolPolicy !== undefined) {
+      if (patch.toolPolicy === null || patch.toolPolicy === POLICY_ALL) delete bot.toolPolicy
+      else bot.toolPolicy = String(patch.toolPolicy)
+    }
     if (patch.name !== undefined) {
       const next = String(patch.name).trim().slice(0, 40)
       const clash = rt.findBot(next)
@@ -390,6 +400,10 @@ export function install(rt) {
     const byMain = actorId === undefined || rt.isMain(actorId)
     const byAdmin = !byMain && rt.isAdminOf(room, actorId)
     if (!byMain && !byAdmin) throw new Error(`Only the user, a Main Bot, or the admin of "${room.name}" can change it`)
+    // Same rule as a Bot's: a policy nobody declared is refused, loudly.
+    if (patch.toolPolicy !== undefined && !rt.isDeclaredPolicy?.(patch.toolPolicy)) {
+      throw new Error(rt.policyError?.(patch.toolPolicy, rt.declaredPolicies?.() ?? []) ?? `No tool policy named ${patch.toolPolicy}`)
+    }
     let members = Array.isArray(patch.members) ? [...new Set(patch.members)] : [...room.members]
     for (const member of patch.add ?? []) if (!members.includes(member)) members.push(member)
     members = members.filter(member => !(patch.remove ?? []).includes(member) && rt.botOf(member))
