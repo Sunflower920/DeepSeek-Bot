@@ -570,8 +570,20 @@ export function install(rt) {
       const roots = [...new Set([rt.workDirOf?.({ roomId: room.id }), rt.workDirOf?.({ botId: self }), rt.teamFolder?.()].filter(Boolean))]
       if (roots.length === 0) return `"${room.name}" works in no folder yet, so there is no file to send from. Ask the user to give the group one with update_group.`
       const base = rt.sessionFolder?.(exec.agent?.session ?? exec.agent)
+      // A path that holds credentials is out of bounds even inside a folder
+      // this group works in, and the refusal says what was left out rather
+      // than leaving the member to imply it had seen everything.
+      const asked = String(args.path ?? '')
+      if (rt.isSecretPath?.(asked) || rt.isSecretPath?.(resolve(asked))) {
+        rt.emitEvent(room.id, 'scan.gap', { path: asked, why: 'it holds credentials' })
+        return `"${asked}" holds credentials, so it is not read or sent. Say what you need another way.`
+      }
       const found = await resolveSendFile(args.path, { base, roots, max: GROUP_FILE_MAX })
-      if (found.error !== undefined) return found.error
+      if (found.error !== undefined) {
+        const { gap } = rt.scanScope?.([found.path ?? asked], roots) ?? {}
+        if (gap) rt.emitEvent(room.id, 'scan.gap', { path: asked, why: 'outside the folders this group works in' })
+        return gap === undefined || gap === '' ? found.error : `${found.error} ${gap}`
+      }
       let file
       // The digest of the bytes as they leave the sender's hands: recorded with
       // the file and shown wherever the group reads it, so a member's claim to
