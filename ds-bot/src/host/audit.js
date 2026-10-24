@@ -19,6 +19,9 @@ export const AUDITS_KEPT = 500
 export const DIGEST_CHARS = 16
 
 export const digestOf = text => createHash('sha256').update(String(text ?? '')).digest('hex').slice(0, DIGEST_CHARS)
+// The same handle for bytes: a file's digest is taken when it leaves the
+// member's hands, so what the group holds can be compared with what it was.
+export const digestBytes = data => createHash('sha256').update(data).digest('hex').slice(0, DIGEST_CHARS)
 
 export function install(rt) {
   const auditRead = ({ roomId, botId = null, kind, text, from = null, to = null, seq = null }) => {
@@ -45,5 +48,11 @@ export function install(rt) {
   const digestFor = (roomId, seq) => [...(rt.state.audits ?? [])].reverse()
     .find(entry => entry.roomId === roomId && entry.seq === seq)?.digest
 
-  Object.assign(rt, { auditRead, auditsView, digestFor, digestOf })
+  // What a group was given, so a reader can tell the file it sees from the
+  // file that was sent.
+  const digestSent = (roomId, attachmentId) => rt.state.rooms?.[roomId]?.fileDigests?.[attachmentId]?.digest
+  const digestsView = () => Object.fromEntries(Object.entries(rt.state.rooms ?? {})
+    .map(([roomId, room]) => [roomId, room.fileDigests ?? {}]))
+
+  Object.assign(rt, { auditRead, auditsView, digestFor, digestOf, digestBytes, digestSent, digestsView })
 }

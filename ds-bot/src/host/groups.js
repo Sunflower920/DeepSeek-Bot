@@ -115,7 +115,10 @@ const ROOM_READ_MAX = 30
 // DSH cannot open the Session at all: it is gone, or its stored log is corrupt. DSH
 // reports a corrupt log only in the message of a generic failure.
 const lostSession = error => error?.code === 'session/not-found' || /\bis corrupt\b|\bcorrupt session log\b/i.test(String(error?.message ?? ''))
-const fileLine = file => `[File "${file.name}" (${file.bytes} bytes) attached]`
+// The digest rides with the file wherever the group reads it: what was sent is
+// what a later claim about it is checked against, so "the draft changed under
+// it" is a fact rather than an argument.
+const fileLine = file => `[File "${file.name}" (${file.bytes} bytes)${file.digest ? `, sha256 ${file.digest}` : ''} attached]`
 
 export function install(rt) {
   const { ctx } = rt

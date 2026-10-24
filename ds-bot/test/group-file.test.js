@@ -112,7 +112,7 @@ test('a member can send a file from its own group, and the log keeps the file wi
   await tool('group_relay', {}, room.id, { callId: 'relay' })
   const line = rt.state.rooms[room.id].log.find(entry => entry.botId === writer.id)
   assert.deepEqual(line.files, [file])
-  assert.match(line.text, /\[File "table\.xls" \(9 bytes\) attached\]/)
+  assert.match(line.text, /\[File "table\.xls" \(9 bytes\)(, sha256 [0-9a-f]+)? attached\]/)
 })
 
 test('a file outside the folders the group works in is refused with where it may sit', async (t) => {
@@ -309,4 +309,60 @@ test('resolveSendFile reads a path the way the group folder names one', async ()
     rmSync(base, { recursive: true, force: true, maxRetries: 5 })
     rmSync(outside, { recursive: true, force: true, maxRetries: 5 })
   }
+})
+
+// #1: what a member sends into the group carries a digest of its bytes, so a
+// later claim to have checked that file can be held against what was really
+// sent - "the draft changed under it" is a fact, not an argument.
+test('a sent file carries a digest of its bytes, and the group reads it', async (t) => {
+  const { call, tool, emit, stop, sent, rt } = start()
+  t.after(stop)
+  const { chief, room } = await team(call)
+  const dir = workDir(t)
+  await call('update-room', { id: room.id, workDir: dir })
+  const store = fakeAttachments()
+  rt.ctx.get = name => (name === 'attachments' ? store : undefined)
+  writeFileSync(join(dir, 'deliverable.txt'), 'version three of the deliverable')
+  await tool('send_file', { group: 'R1', path: join(dir, 'deliverable.txt'), message: 'The deliverable.' }, rt.chatOf(chief))
+  // The relay writes the line the group reads.
+  const post = sent.find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
+  await emit(room.id, { type: 'user/message', data: { source: post.message.source, content: post.message.content } })
+  await tool('group_relay', {}, room.id, { callId: 'relay-digest' })
+  const saved = rt.state.rooms[room.id]
+  const [id] = Object.keys(saved.fileDigests ?? {})
+  assert.ok(id, 'the digest is recorded with the file')
+  const record = saved.fileDigests[id]
+  assert.equal(record.digest.length, 16)
+  assert.equal(record.name, 'deliverable.txt')
+  assert.equal(record.bytes, 'version three of the deliverable'.length)
+  // The same bytes digest the same way, and other bytes do not: that
+  // difference is what makes a changed draft visible.
+  assert.equal(rt.digestBytes(Buffer.from('version three of the deliverable')), record.digest)
+  assert.notEqual(rt.digestBytes(Buffer.from('version four of the deliverable')), record.digest)
+  // What was sent can be looked up later, which is how a claim is checked.
+  assert.equal(rt.digestSent(room.id, id), record.digest)
+  // And the group reads the digest with the file rather than somewhere else:
+  // the file is announced in the log with its sha256 beside it.
+  const line = (saved.log ?? []).at(-1)
+  assert.ok(line, 'the file was announced in the group')
+  assert.match(JSON.stringify(line.files ?? []), new RegExp(record.digest), 'the digest rides with the file')
+})
+
+test('the same file sent twice keeps one digest per send, and a changed file shows a new one', async (t) => {
+  const { call, tool, stop, rt } = start()
+  t.after(stop)
+  const { chief, room } = await team(call)
+  const dir = workDir(t)
+  await call('update-room', { id: room.id, workDir: dir })
+  const store = fakeAttachments()
+  rt.ctx.get = name => (name === 'attachments' ? store : undefined)
+  writeFileSync(join(dir, 'notes.md'), 'first draft')
+  await tool('send_file', { group: 'R1', path: join(dir, 'notes.md') }, rt.chatOf(chief))
+  const first = Object.values(rt.state.rooms[room.id].fileDigests)[0].digest
+  writeFileSync(join(dir, 'notes.md'), 'second draft')
+  await tool('send_file', { group: 'R1', path: join(dir, 'notes.md') }, rt.chatOf(chief))
+  const digests = Object.values(rt.state.rooms[room.id].fileDigests).map(item => item.digest)
+  assert.equal(digests.length, 2, 'each send is recorded')
+  assert.notEqual(digests[0], digests[1], 'and a changed file digests differently')
+  assert.equal(digests[0], first, 'the first send keeps the digest it had')
 })

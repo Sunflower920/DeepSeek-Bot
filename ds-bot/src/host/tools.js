@@ -573,8 +573,13 @@ export function install(rt) {
       const found = await resolveSendFile(args.path, { base, roots, max: GROUP_FILE_MAX })
       if (found.error !== undefined) return found.error
       let file
+      // The digest of the bytes as they leave the sender's hands: recorded with
+      // the file and shown wherever the group reads it, so a member's claim to
+      // have checked this file can be held against what was actually sent.
+      let digest = ''
       try {
         const data = await readFile(found.path)
+        digest = rt.digestBytes(data)
         file = await ctx.get?.('attachments')?.saveFile({ data: new Uint8Array(data), name: found.name })
       } catch (failure) {
         rt.warn('ds-bot: file %s not sent: %s', found.path, failure)
@@ -585,8 +590,9 @@ export function install(rt) {
       // works in, so the chat opens it where it is (DSH's file viewer reads the
       // workspace) instead of downloading bytes. The room remembers the path too, for
       // a message whose content never carried one.
-      const sent = { ...file, path: found.path }
+      const sent = { ...file, path: found.path, digest }
       room.filePaths = { ...(room.filePaths ?? {}), [file.attachmentId]: found.path }
+      room.fileDigests = { ...(room.fileDigests ?? {}), [file.attachmentId]: { digest, bytes: file.bytes, name: file.name, path: found.path, at: Date.now() } }
       const text = absoluteLinks(String(args.message ?? '').trim(), base)
       await rt.postToRoom(room, sender, text, { progress: true }, [sent])
       return `Sent "${file.name}" (${file.bytes} bytes) into "${room.name}". The user can open it there.`
