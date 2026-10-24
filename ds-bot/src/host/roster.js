@@ -407,6 +407,14 @@ export function install(rt) {
       admin = null
     }
     if (patch.mode !== undefined && !ROOM_MODES.includes(patch.mode)) throw new Error(`Reply mode must be one of ${ROOM_MODES.join(', ')}`)
+    // A halt is a decision with a reason; a resume says what lifted it, so a
+    // deliberate restart reads differently from a message that passed through.
+    if (patch.status === 'halted') {
+      rt.haltRoom(room, { kind: rt.HALT_USER, reason: patch.reason ?? '' })
+    } else if (patch.status === 'active') {
+      if (String(patch.reason ?? '').trim() === '') throw new Error('Say why the group is being resumed')
+      rt.resumeRoom(room, { reason: patch.reason })
+    }
     const notice = patch.notice === undefined ? undefined : cleanNotice(patch.notice)
     if (patch.workDir !== undefined && byAdmin) throw new Error(`Only the user or a Main Bot can set the folder of "${room.name}"`)
     // A Bot's own permissions are the user's to set, so a group's are too.
@@ -449,6 +457,12 @@ export function install(rt) {
       room.mode = patch.mode
       changes.push(patch.mode === 'admin' ? 'plain messages now go to the admin first' : 'every member now replies in turn')
     }
+    if (patch.status !== undefined) {
+      changes.push(patch.status === 'halted'
+        ? `stopped the group${room.haltedReason ? ` (${room.haltedReason})` : ''}`
+        : `resumed the group${room.resumedReason ? ` (${room.resumedReason})` : ''}`)
+      rt.emitEvent?.(room.id, patch.status === 'halted' ? 'halted' : 'resumed', patch.status === 'halted' ? { kind: room.haltedKind, reason: room.haltedReason } : { reason: room.resumedReason })
+    }
     if (notice !== undefined && notice !== (room.notice ?? '')) {
       room.notice = notice
       changes.push(notice ? 'updated the notice' : 'cleared the notice')
@@ -481,10 +495,25 @@ export function install(rt) {
     return { room, changes }
   }
 
+  // A deleted group is archived, not erased: its log, members and notice stay
+  // readable, so after a restart "it left" reads differently from "it never was".
+  // The archive is bounded; the oldest groups are the ones that fall out.
+  const ARCHIVED_ROOMS_KEPT = 50
   async function deleteRoom(id) {
     const room = rt.roomOf(id)
     if (room === undefined) throw new Error('Unknown group chat')
     for (const botId of Object.keys(room.sessions ?? {})) rt.dropGroupSession(room, botId)
+    if (state.archivedRooms === undefined) state.archivedRooms = {}
+    // Names and a preview are frozen at archive time: the members may be deleted
+    // later, and a reader after a restart still sees who was in the group.
+    const last = (room.log ?? []).filter(line => line.kind === undefined).at(-1)
+    state.archivedRooms[id] = {
+      ...room, archivedAt: Date.now(),
+      memberNames: room.members.map(member => rt.botOf(member)?.name ?? member),
+      ...(last ? { preview: last.who === 'User' ? last.text : `${last.who}：${last.text}` } : {}),
+    }
+    const kept = Object.entries(state.archivedRooms).sort(([, a], [, b]) => a.archivedAt - b.archivedAt).slice(-ARCHIVED_ROOMS_KEPT)
+    state.archivedRooms = Object.fromEntries(kept)
     delete state.rooms[id]
     rt.roomInbox.delete(id)
     rt.dropGroupLines(id)

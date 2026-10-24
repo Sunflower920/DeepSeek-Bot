@@ -627,5 +627,21 @@ export function install(rt) {
     }
   })
 
-  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, callDetail, doingOf, stopRoomTurn, releaseBot })
+  // Stopping is two stages: the cancel is the first, and then we wait for the turn
+  // to actually go quiet, so the next message never lands on a turn that is still
+  // writing. Bounded - a session that will not quiet is reported, not waited on
+  // forever - because a stop that hangs is its own kind of breakage.
+  const CONVERGE_TIMEOUT_MS = 30000
+  const CONVERGE_POLL_MS = 200
+  const convergeSessions = async (sessionIds, { timeoutMs = CONVERGE_TIMEOUT_MS } = {}) => {
+    const wanted = [...new Set(sessionIds)].filter(sessionId => typeof sessionId === 'string' && sessionId !== '')
+    const deadline = Date.now() + timeoutMs
+    for (;;) {
+      const still = wanted.filter(sessionId => live.get(sessionId)?.turn !== undefined)
+      if (still.length === 0 || Date.now() >= deadline) return { converged: wanted.filter(sessionId => !still.includes(sessionId)), still }
+      await new Promise(resolve => { setTimeout(resolve, CONVERGE_POLL_MS) })
+    }
+  }
+
+  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, callDetail, doingOf, stopRoomTurn, releaseBot, convergeSessions })
 }

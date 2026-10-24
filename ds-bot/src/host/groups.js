@@ -181,7 +181,7 @@ export function install(rt) {
   }
   // On `rt` so parts.js can tell the group a member moved to a fresh part: the member
   // then answers nobody for a while, which without a note reads as it being gone.
-  Object.assign(rt, { keepGroupLine, dropGroupLines, appendRoom })
+  Object.assign(rt, { keepGroupLine, dropGroupLines, appendRoom, groupSessionFor })
 
   // A member's group Session, created on its first turn there. A new one starts with
   // a fresh look at the log and a brief of the member's own chat; the brief is the
@@ -205,6 +205,7 @@ export function install(rt) {
     }
     room.sessions[member.id] = id
     rt.groupOwners.set(id, { botId: member.id, roomId: room.id })
+    room.seen ??= {}
     delete room.seen[member.id]
     const ref = await rt.desiredModel(member)
     if (ref !== undefined) {
@@ -442,9 +443,7 @@ export function install(rt) {
       noteDropped(room, round)
     }
     // The user spoke in this room, so late results may call members again.
-    room.lateRounds = 0
-    room.quietNoticed = false
-    void rt.save().catch(() => {})
+    resumeForUser(room)
     return round.slots.length - before
   }
 
@@ -586,13 +585,10 @@ export function install(rt) {
           ...(post.files === undefined ? {} : { files: post.files }),
         })
       }
-      // The user wrote here, so late results may call members again and the quiet
-      // notice may be told again: the count and the notice reset together, as they
-      // do for a message that waited in the inbox (drainRoomInbox).
-      if (posts.some(post => !post.botId && !post.kickoff)) {
-        room.lateRounds = 0
-        room.quietNoticed = false
-      }
+    // The user wrote here, so late results may call members again and the quiet
+    // notice may be told again: the count and the notice reset together, as they
+    // do for a message that waited in the inbox (drainRoomInbox).
+    if (posts.some(post => !post.botId && !post.kickoff)) resumeForUser(room)
       await rt.save()
       // An event post never picks the speakers over a message queued with it.
       const opener = posts.findLast(post => !event(post)) ?? posts.at(-1)
@@ -674,7 +670,14 @@ export function install(rt) {
         ...(round.failed.length > 0 ? { failed: round.failed } : {}),
       })
       if (exec.signal?.aborted) {
-        for (const turn of round.started) void rt.stopRoomTurn?.(room.sessions?.[turn.botId] ?? turn.sessionId, turn.exchangeId)
+        const started = round.started.map(turn => ({ sessionId: room.sessions?.[turn.botId] ?? turn.sessionId, exchangeId: turn.exchangeId }))
+        for (const turn of started) void rt.stopRoomTurn?.(turn.sessionId, turn.exchangeId)
+        // Two stages: the cancels are the first. The wait is bounded and off this
+        // round's own return - the next round already holds back a member that is
+        // still working - so the convergence is recorded, not waited for here.
+        void rt.convergeSessions(started.map(turn => turn.sessionId), { timeoutMs: 10000 })
+          .then(({ still }) => rt.emitEvent(room.id, 'stop.converged', { stopped: started.length, still: still.length }))
+          .catch(() => {})
       }
       await rt.save()
       for (const post of posts) {
@@ -791,7 +794,10 @@ export function install(rt) {
     const members = everyone.filter(bot => bot.id !== opener.botId)
     const admin = members.find(bot => rt.isAdminOf(room, bot.id))
     if (opener.kickoff) return { speakers: admin ? [admin] : [], standby: [] }
-    if (opener.quiet) return { speakers: [], standby: [] }
+    // A halted room answers nobody until it is resumed: a member's post keeps its
+    // place in the log, but its "@" names call nobody, as with a late post past
+    // the round limit. The user's own message resumes the room before it is read.
+    if (opener.quiet || (rt.isHalted(room) && opener.botId !== undefined)) return { speakers: [], standby: [] }
     if (opener.done) return { speakers: members.filter(bot => bot.id === opener.askedBy), standby: [] }
     const { all, found: named } = mentionsIn(opener.text, everyone, opener.references)
     const found = named.filter(bot => bot.id !== opener.botId)
@@ -820,11 +826,26 @@ export function install(rt) {
   // while the log still shows them. Members would keep handing work to a room that
   // no longer answers, so the group is told once when the limit is reached; the
   // user's next message resets the count (drainRoomInbox) and it may be told again.
+  // The room is HALTED, with the limit as the reason: a decision to stop reads
+  // differently from a loop that ran out of room, and a resume says which lifted it.
   const noteQuiet = (room) => {
     if (room.quietNoticed === true) return
     room.quietNoticed = true
     appendRoom(room, { who: 'DS Bot', kind: 'notice', text: `The group is in quiet mode: late replies after work have reached the ${ROOM_LATE_ROUNDS}-round limit, so @ names in later posts call nobody, though the messages still reach the log. The user can reset it by writing here, or the current work can finish.` })
-    rt.emitEvent(room.id, 'quiet', { limit: ROOM_LATE_ROUNDS })
+    rt.haltRoom(room, { kind: rt.HALT_LATE, reason: `late replies reached the ${ROOM_LATE_ROUNDS}-round limit` })
+    rt.emitEvent(room.id, 'halted', { kind: rt.HALT_LATE, reason: room.haltedReason })
+    void rt.save().catch(() => {})
+  }
+
+  // The user wrote here, so the room answers again: a halt the late-round limit
+  // caused is lifted by the message itself, and the record says so.
+  const resumeForUser = (room) => {
+    room.lateRounds = 0
+    room.quietNoticed = false
+    if (rt.isHalted(room)) {
+      rt.resumeRoom(room, { reason: 'the user wrote here' })
+      rt.emitEvent(room.id, 'resumed', { reason: room.resumedReason })
+    }
     void rt.save().catch(() => {})
   }
 

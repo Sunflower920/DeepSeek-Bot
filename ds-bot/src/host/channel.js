@@ -156,6 +156,9 @@ export function install(rt) {
       const last = (log ?? []).filter(line => line.kind === undefined).at(-1)
       return { ...room, parts, ...(last ? { preview: last.who === 'User' ? last.text : `${last.who}：${last.text}` } : {}) }
     }),
+    // Deleted groups, kept readable: their log and members survive the delete, so
+    // a restart tells "it left" from "it never was".
+    archivedRooms: Object.values(state.archivedRooms ?? {}).map(({ log, seen, lateRounds, sessions, segments, ...room }) => room),
     exchangeTurns: state.exchangeTurns,
     questions: state.questions,
     // The team's DSH Agent (at most one): plain dsh Sessions, not Bots.
@@ -322,6 +325,8 @@ export function install(rt) {
             name: body.name,
             notice: body.notice,
             mode: body.mode,
+            status: body.status,
+            reason: body.reason,
             admin: body.admin,
             members: Array.isArray(body.members) ? body.members : undefined,
             add: Array.isArray(body.add) ? body.add : undefined,

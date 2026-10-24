@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
+import { ROOM_LATE_ROUNDS } from '../src/host/constants.js'
 import { haltRoom, isRetired, resumeRoom, retireSessions, roomStatus, RETIRED_KEPT } from '../src/host/lifecycle.js'
 import { fakeAttachments, fakeContext } from './fake-ctx.js'
 
@@ -150,4 +151,101 @@ test('the lifecycle words are a vocabulary, not a convention', () => {
   assert.equal(Object.keys(state.retiredSessions).length, RETIRED_KEPT)
   assert.equal(state.retiredSessions.s0, undefined)
   assert.equal(state.retiredSessions[`s${RETIRED_KEPT + 4}`].name, `Bot ${RETIRED_KEPT + 4}`)
+})
+
+// ── #2 halted / resumed ───────────────────────────────────────────────────────
+
+test('the late-round limit halts the group, and the user writing here resumes it', async (t) => {
+  const { call, tool, emit, stop, sent, rt } = start()
+  t.after(stop)
+  const { chief, writer, room } = await team(call)
+  // The members' group Sessions, the way the host makes them: a late reply
+  // arrives on one of those, not on a Bot's own chat.
+  const late = (await rt.groupSessionFor(rt.state.rooms[room.id], rt.botOf(writer.id))).id
+  // Late replies, one per round: the limit halts the group on the reply past it.
+  for (let index = 0; index <= ROOM_LATE_ROUNDS; index++) {
+    await rt.lateRoomReply(late, { roomId: room.id, askedBy: rt.state.rooms[room.id].admin }, 'done with the work')
+  }
+  const saved = rt.state.rooms[room.id]
+  assert.equal(rt.isHalted(saved), true, 'the limit halts the group')
+  assert.equal(saved.haltedKind, 'late-rounds', 'the reason is the loop, not a decision')
+  const halted = rt.roomEventsOf(room.id).find(line => line.type === 'halted')
+  assert.ok(halted, 'the halt is recorded')
+  assert.equal(halted.kind, 'late-rounds')
+  // A member's post into a halted group keeps its place but calls nobody.
+  const before = (saved.log ?? []).length
+  await tool('post_to_group', { group: 'R1', message: '@Writer look at this' }, rt.chatOf(rt.state.rooms[room.id].members[1]))
+  const post = sent.find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
+  await emit(room.id, { type: 'user/message', data: { source: post.message.source, content: post.message.content } })
+  await tool('group_relay', {}, room.id, { callId: 'relay-halted' })
+  assert.equal((saved.log ?? []).length, before + 1, 'the post reaches the log')
+  const quietRound = rt.roomEventsOf(room.id).filter(line => line.type === 'round.start').at(-1)
+  assert.deepEqual(quietRound.slots, [], 'but nobody is called')
+  // The user writing here resumes it, and the record says what lifted the halt.
+  await userRound({ call, tool, emit, sent, rt }, room, 'carry on')
+  assert.equal(rt.isHalted(rt.state.rooms[room.id]), false, 'the user message resumes the group')
+  const resumed = rt.roomEventsOf(room.id).find(line => line.type === 'resumed')
+  assert.ok(resumed, 'the resume is recorded')
+  assert.equal(resumed.reason, 'the user wrote here')
+})
+
+test('a halt and a resume are decisions with reasons, taken through update_group', async (t) => {
+  const { call, tool, stop, rt } = start()
+  t.after(stop)
+  const { chief, room } = await team(call)
+  const halted = await tool('update_group', { group: 'R1', status: 'halted', reason: 'the user asked for quiet' }, rt.chatOf(chief))
+  assert.match(halted, /stopped the group/, 'the halt reports itself')
+  assert.equal(rt.state.rooms[room.id].haltedKind, 'user', 'a decision reads differently from the limit')
+  // A resume without a reason is refused: a deliberate restart says why.
+  const refused = await tool('update_group', { group: 'R1', status: 'active' }, rt.chatOf(chief))
+  assert.match(refused, /Could not update/, 'a resume without a reason is refused')
+  assert.equal(rt.isHalted(rt.state.rooms[room.id]), true, 'and the group stays halted')
+  const resumed = await tool('update_group', { group: 'R1', status: 'active', reason: 'the user is back' }, rt.chatOf(chief))
+  assert.match(resumed, /resumed the group/, 'the resume reports itself')
+  assert.equal(rt.state.rooms[room.id].resumedReason, 'the user is back')
+})
+
+// ── #3 stopping is two stages ─────────────────────────────────────────────────
+
+test('a stop cancels the turn and then waits for it to go quiet', async (t) => {
+  const { call, stop, rt } = start()
+  t.after(stop)
+  const { chief, writer } = await team(call)
+  const here = rt.chatOf(writer.id)
+  // A turn that ends on its own a little later: the cancel is the first stage,
+  // the wait is the second.
+  let entry = { turn: {} }
+  rt.live.set(here, entry)
+  const finish = setTimeout(() => rt.live.delete(here), 300)
+  const { converged, still } = await rt.convergeSessions([here, rt.chatOf(chief)], { timeoutMs: 5000 })
+  clearTimeout(finish)
+  assert.deepEqual(converged, [here, rt.chatOf(chief)], 'both went quiet')
+  assert.deepEqual(still, [], 'nothing is still writing')
+  // A session that never quiets is reported, not waited on forever.
+  rt.live.set(here, { turn: {} })
+  const stuck = await rt.convergeSessions([here], { timeoutMs: 250 })
+  assert.deepEqual(stuck.still, [here], 'the stuck session is reported')
+  rt.live.delete(here)
+})
+
+// ── #11 a deleted group is archived, not erased ───────────────────────────────
+
+test('a deleted group stays readable after the delete', async (t) => {
+  const { call, tool, emit, stop, sent, rt } = start()
+  t.after(stop)
+  const { chief, writer, reviewer, room } = await team(call)
+  await userRound({ call, tool, emit, sent, rt }, room, 'hello everyone')
+  await tool('delete_group', { group: 'R1' }, rt.chatOf(chief))
+  assert.equal(rt.roomOf(room.id), undefined, 'the group is gone from the team')
+  const archived = rt.state.archivedRooms[room.id]
+  assert.ok(archived, 'but it is in the archive')
+  assert.equal(archived.name, 'R1')
+  assert.deepEqual(archived.memberNames, ['Chief', 'Writer', 'Reviewer'], 'the members are frozen by name')
+  assert.equal(typeof archived.archivedAt, 'number')
+  // A restart reads the archive from state: this is the cold discovery.
+  const seen = (await call('state', {})).value.archivedRooms
+  assert.equal(seen.length, 1)
+  assert.equal(seen[0].id, room.id)
+  assert.equal(seen[0].name, 'R1')
+  assert.deepEqual(seen[0].memberNames, ['Chief', 'Writer', 'Reviewer'])
 })

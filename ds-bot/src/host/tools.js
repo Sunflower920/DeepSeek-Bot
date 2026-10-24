@@ -271,9 +271,12 @@ export function install(rt) {
         const agent = await rt.resolveAgent(sessionId)
         agent.cancel({ kind: 'hook', reason: 'ds-bot/stopped' })
       }
+      // Two stages: the cancel is the first. The reason is delivered only once the
+      // old turns are quiet, so it never lands on a turn that is still writing.
+      const { still } = await rt.convergeSessions(running, { timeoutMs: 15000 })
       const why = String(args.reason ?? '').trim() || 'Stop what you are doing; the previous turn was ended on purpose. Acknowledge briefly.'
       await rt.deliver({ fromId: sender.id, toId: target.id, text: why, role: 'stopped', ...callerRoom(exec) })
-      return `Stopped ${target.name} in ${running.map(whereOf).join(' and ')}. It is told why in a new turn, whose reply comes back to you.`
+      return `Stopped ${target.name} in ${running.map(whereOf).join(' and ')}.${still.length > 0 ? ` ${still.length} of its turns are still finishing; the reason waits in its inbox.` : ''} It is told why in a new turn, whose reply comes back to you.`
     },
   }))
 
@@ -421,6 +424,8 @@ export function install(rt) {
       remove_members: { type: 'array', items: { type: 'string' }, description: 'Exact names of Bots to remove' },
       admin: { type: 'string', description: 'Member to make the admin; "none" leaves the group without one (Main Bots only)' },
       mode: MODE_PARAM,
+      status: { type: 'string', enum: ['halted', 'active'], description: '"halted" stops the group: members\' posts keep their place in the log but their @ names call nobody until it is resumed. "active" resumes it and needs a reason' },
+      reason: { type: 'string', description: 'Why the group is halted or resumed; a resume without one is refused' },
       work_dir: { ...WORK_DIR_PARAM, description: `${WORK_DIR_PARAM.description}. Every member works there in this group; an empty string lets each member work in its own folder again (Main Bots only)` },
     },
     output,
@@ -459,6 +464,8 @@ export function install(rt) {
           name: args.name,
           notice: args.notice,
           mode: args.mode,
+          status: args.status,
+          reason: args.reason,
           admin,
           add: add.bots.map(bot => bot.id),
           remove: remove.bots.map(bot => bot.id),
