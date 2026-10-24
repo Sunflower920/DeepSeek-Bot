@@ -257,6 +257,29 @@ test('file-preview reads a document and a table into what a panel can show', asy
   assert.equal((await call('file-preview', {})).error.code, 'bot/invalid')
 })
 
+test('file-locate answers where a sent file sits, and nothing once it is gone', async (t) => {
+  const { call, tool, stop, sent, rt } = start()
+  t.after(stop)
+  const { chief, room } = await team(call)
+  const dir = workDir(t)
+  await call('update-room', { id: room.id, workDir: dir })
+  const store = fakeAttachments()
+  rt.ctx.get = name => (name === 'attachments' ? store : undefined)
+  writeFileSync(join(dir, 'report.docx'), 'docx-bytes')
+  await tool('send_file', { group: 'R1', path: join(dir, 'report.docx') }, rt.chatOf(chief))
+  const post = sent.find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
+  const file = post.message.content.find(block => block.type === 'file')?.attachment
+  assert.equal(file.path, join(dir, 'report.docx'), 'the reference carries where the file sits')
+  const found = await call('file-locate', { file })
+  assert.equal(found.ok, true)
+  assert.equal(found.value.path, join(dir, 'report.docx'))
+  // An id no room sent answers nothing, and so does a file that moved on.
+  assert.deepEqual(await call('file-locate', { file: { attachmentId: 'sha256:nope' } }), { ok: true, value: { path: null } })
+  rmSync(join(dir, 'report.docx'))
+  assert.deepEqual(await call('file-locate', { file }), { ok: true, value: { path: null } })
+  assert.equal((await call('file-locate', {})).error.code, 'bot/invalid')
+})
+
 test('resolveSendFile reads a path the way the group folder names one', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'ds-bot-resolve-'))
   const base = mkdtempSync(join(tmpdir(), 'ds-bot-base-'))

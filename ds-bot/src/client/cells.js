@@ -216,12 +216,12 @@ function GroupMessage({ bot, text, texts = [text], files = [], room, roster, act
 
 // Files a Bot sent into the group (send_file), which the user opens from the chat: the
 // bytes come from the host on a click, so a chip works without a path on the screen.
-// Clicking the chip shows the file in a panel — an image, a PDF, a table's rows, a
-// document's text — and the small icon downloads a copy instead.
+// Clicking the chip opens the file in DSH's own viewer (the right sidebar), where the
+// file sits in a folder this group works in; the small icon downloads a copy instead.
 function GroupFiles({ files, actions }) {
   return h('div', { className: 'bt-gfiles' }, files.map((file, index) => {
     const meta = [ui.fileExtension?.(file.name)?.toUpperCase().slice(0, 8), ui.fileSizeText?.(file.bytes)].filter(Boolean).join(' · ')
-    return h('button', { key: index, type: 'button', className: 'bt-gfile', title: file.name, 'aria-label': t('Open {name}', { name: file.name }), onClick: () => actions.previewFile(file) },
+    return h('button', { key: index, type: 'button', className: 'bt-gfile', title: file.name, 'aria-label': t('Open {name}', { name: file.name }), onClick: () => actions.openFile(file) },
       ui.FileTypeIcon ? h(ui.FileTypeIcon, { path: file.name, className: 'bt-gfile-icon' }) : null,
       h('span', { className: 'bt-gfile-text' },
         h('span', { className: 'bt-gfile-name' }, file.name),

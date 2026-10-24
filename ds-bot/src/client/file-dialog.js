@@ -79,7 +79,7 @@ export function FileDialog({ file, actions, leaving = false }) {
   }, [file])
 
   const name = String(file?.name ?? '')
-  const openOutside = () => actions.openFile(file)
+  const openOutside = () => actions.launchFile(file)
   const save = () => actions.downloadFile(file)
   const truncated = state.truncated === true
   return h('div', { className: 'bt-file-layer', 'data-leaving': leaving || undefined },

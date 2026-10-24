@@ -34,8 +34,9 @@ import { ABOUT_CSS } from './about.js'
 import { MEMBER_CSS, MemberDock } from './member-status.js'
 import { USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages } from './user-message.js'
 import { noticeApprovals } from './approval-notices.js'
+import { fileAddress } from './file-address.js'
 
-export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout']
+export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout', 'sidebarRight']
 
 export function apply(ctx) {
   ctx.effect(() => installLocale(ctx.get('locale')), 'ds-bot: interface copy')
@@ -339,6 +340,19 @@ export function apply(ctx) {
     for (const [id, owner] of pendingAdopt) if (owner === agentId && !ids.includes(id)) ids.push(id)
     return ids
   }
+  // DSH's right sidebar, the file viewer a normal chat uses. False when this DSH has
+  // no such service, so the caller can fall back to the chat's own panel.
+  const openInSidebar = path => {
+    const sidebar = ctx.get?.('sidebarRight')
+    if (sidebar?.openResource === undefined) return false
+    try {
+      sidebar.openResource(fileAddress(path))
+      return true
+    } catch (error) {
+      actions.reportError(error, 'open-file')
+      return false
+    }
+  }
   const actions = {
     // The full-pane overlays sit above the conversation, so opening one must dismiss them
     // or the click appears to do nothing.
@@ -548,19 +562,27 @@ export function apply(ctx) {
     exchange: (a, b) => call('exchange', { a, b }).catch(() => []),
     exchangeText: id => call('exchange-text', { id }).catch(() => undefined),
     fileText: file => call('file-text', { file }).catch(() => undefined),
-    // A group chat's file chip (send_file): the panel shows the file in the chat
-    // itself — an image, a PDF, a table's rows, a document's text. The host reads
-    // the Office kinds; the browser renders the rest from the bytes.
-    previewFile: file => ui.set(state => ({ ...state, file })),
+    // A group chat's file chip (send_file): the file sits in a folder the group
+    // works in, so DSH's own file viewer opens it in the right sidebar — the same
+    // view a normal chat gives a file. When the path is unknown (a message that
+    // never carried one, a restart, a file that moved) the panel in the chat shows
+    // it from the bytes instead: an image, a PDF, a table's rows, a document's text.
+    openFile: async (file) => {
+      let path = typeof file?.path === 'string' && file.path !== '' ? file.path : undefined
+      if (path === undefined) path = (await call('file-locate', { file }).catch(() => null))?.path ?? undefined
+      if (path !== undefined && openInSidebar(path)) return
+      ui.set(state => ({ ...state, file }))
+    },
     closeFile: () => ui.set(state => (state.file ? { ...state, file: null } : state)),
+    previewFile: file => ui.set(state => ({ ...state, file })),
     filePreview: file => call('file-preview', { file }),
     fileBytes: async file => {
       const response = await callFile('file-open', { file })
       return await response.blob()
     },
-    // A group chat's file chip (send_file): the host stages the bytes and opens the
-    // file with the app that owns it, on the machine the host runs on.
-    openFile: async (file) => {
+    // A file the panel cannot show, or a reader who wants the copy: the host stages
+    // the bytes and opens the file with the app that owns it, on this machine.
+    launchFile: async (file) => {
       try {
         await call('file-launch', { file })
       } catch (error) {

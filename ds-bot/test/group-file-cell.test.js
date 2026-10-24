@@ -77,12 +77,12 @@ const draw = (node, actions = {}) => {
   return out
 }
 
-// The chip opens the file in the panel; the icon beside it downloads a copy instead.
-test('a post with a file draws a chip that shows the file in the panel', () => {
-  const file = { attachmentId: 'sha256:1', name: 'report.docx', bytes: 50073 }
+// The chip opens the file in DSH's viewer; the icon beside it downloads a copy instead.
+test('a post with a file draws a chip that opens the file where it sits', () => {
+  const file = { attachmentId: 'sha256:1', name: 'report.docx', bytes: 50073, path: 'D:/work/report.docx' }
   const opened = []
   const saved = []
-  const node = draw(post([{ type: 'text', text: '[Group post from Writer]\nThe report.' }, { type: 'file', attachment: file }]), { previewFile: file => opened.push(file), downloadFile: file => saved.push(file) })
+  const node = draw(post([{ type: 'text', text: '[Group post from Writer]\nThe report.' }, { type: 'file', attachment: file }]), { openFile: file => opened.push(file), downloadFile: file => saved.push(file) })
   const chip = find(node, item => item.props?.className === 'bt-gfile')
   assert.ok(chip, 'the file draws as a chip')
   assert.equal(chip.props.title, 'report.docx')
@@ -92,7 +92,7 @@ test('a post with a file draws a chip that shows the file in the panel', () => {
   const icon = find(chip, item => item.props?.className === 'bt-gfile-open')
   assert.ok(icon, 'the chip carries a download control')
   icon.props.onClick({ stopPropagation: () => {} })
-  assert.deepEqual(saved, [file], 'the icon downloads without opening the panel')
+  assert.deepEqual(saved, [file], 'the icon downloads without opening the viewer')
 })
 
 test('two files in one post draw two chips', () => {

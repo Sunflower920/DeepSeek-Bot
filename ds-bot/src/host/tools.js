@@ -571,8 +571,14 @@ export function install(rt) {
         return `Could not read ${found.path}: ${failure?.message ?? failure}`
       }
       if (file === undefined) return 'This DeepSeek Harness cannot store files, so the file cannot be sent. Give the user its path instead.'
+      // The file's own path rides with the reference: it sits in a folder this group
+      // works in, so the chat opens it where it is (DSH's file viewer reads the
+      // workspace) instead of downloading bytes. The room remembers the path too, for
+      // a message whose content never carried one.
+      const sent = { ...file, path: found.path }
+      room.filePaths = { ...(room.filePaths ?? {}), [file.attachmentId]: found.path }
       const text = absoluteLinks(String(args.message ?? '').trim(), base)
-      await rt.postToRoom(room, sender, text, { progress: true }, [file])
+      await rt.postToRoom(room, sender, text, { progress: true }, [sent])
       return `Sent "${file.name}" (${file.bytes} bytes) into "${room.name}". The user can open it there.`
     },
   }))

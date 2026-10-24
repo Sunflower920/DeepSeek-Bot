@@ -191,7 +191,7 @@ export function install(rt) {
   })
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['state', 'models', 'efforts', 'earlier', 'room-progress', 'exchange', 'exchange-text', 'file-text', 'file-launch', 'file-preview', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer'])
+  const READS = new Set(['state', 'models', 'efforts', 'earlier', 'room-progress', 'exchange', 'exchange-text', 'file-text', 'file-launch', 'file-locate', 'file-preview', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer'])
 
   function setPrefs(body) {
     if (body.theme !== undefined) {
@@ -257,6 +257,24 @@ export function install(rt) {
         // A group chat's file chip (send_file), opened with the app that owns it.
         case 'file-launch':
           return await fileLaunch(body)
+        // Where a file a Bot sent still sits on disk, so the chat can open it in
+        // DSH's own file viewer; null once the file is gone or its room forgot it.
+        case 'file-locate': {
+          if (typeof body.file?.attachmentId !== 'string') return fail('No file named', 'bot/invalid')
+          await rt.load()
+          const wanted = body.file.attachmentId
+          for (const room of Object.values(state.rooms)) {
+            const path = room.filePaths?.[wanted]
+            if (typeof path !== 'string') continue
+            try {
+              statSync(path)
+            } catch {
+              continue
+            }
+            return ok({ path })
+          }
+          return ok({ path: null })
+        }
         // The same file, read into what the preview panel shows.
         case 'file-preview':
           return await filePreview(body)

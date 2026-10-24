@@ -4225,7 +4225,7 @@ function GroupFiles({ files, actions }) {
     const meta = [ui.fileExtension?.(file.name)?.toUpperCase().slice(0, 8), ui.fileSizeText?.(file.bytes)].filter(Boolean).join(" · ");
     return (0, import_react7.createElement)(
       "button",
-      { key: index, type: "button", className: "bt-gfile", title: file.name, "aria-label": t("Open {name}", { name: file.name }), onClick: () => actions.previewFile(file) },
+      { key: index, type: "button", className: "bt-gfile", title: file.name, "aria-label": t("Open {name}", { name: file.name }), onClick: () => actions.openFile(file) },
       ui.FileTypeIcon ? (0, import_react7.createElement)(ui.FileTypeIcon, { path: file.name, className: "bt-gfile-icon" }) : null,
       (0, import_react7.createElement)(
         "span",
@@ -12664,7 +12664,7 @@ function FileDialog({ file, actions, leaving = false }) {
     };
   }, [file]);
   const name = String(file?.name ?? "");
-  const openOutside = () => actions.openFile(file);
+  const openOutside = () => actions.launchFile(file);
   const save = () => actions.downloadFile(file);
   const truncated = state.truncated === true;
   return (0, import_react35.createElement)(
@@ -13804,8 +13804,11 @@ function noticeApprovals({ work, roster, shownSession, openSession, since: since
   return work.subscribe(notify);
 }
 
+// src/client/file-address.js
+var fileAddress = (path) => `dsh-resource://file/absolute/${path.replace(/\\/g, "/").split("/").map((segment) => encodeURIComponent(segment).replace(/%3A/gi, ":")).join("/")}`;
+
 // src/client/index.js
-var inject = ["sessions", "uiWorkspace", "uiConversation", "slots", "theme", "layout"];
+var inject = ["sessions", "uiWorkspace", "uiConversation", "slots", "theme", "layout", "sidebarRight"];
 function apply(ctx) {
   ctx.effect(() => installLocale(ctx.get("locale")), "ds-bot: interface copy");
   const roster = createSource(EMPTY_ROSTER);
@@ -14121,6 +14124,17 @@ function apply(ctx) {
     for (const [id, owner] of pendingAdopt) if (owner === agentId && !ids.includes(id)) ids.push(id);
     return ids;
   };
+  const openInSidebar = (path) => {
+    const sidebar = ctx.get?.("sidebarRight");
+    if (sidebar?.openResource === void 0) return false;
+    try {
+      sidebar.openResource(fileAddress(path));
+      return true;
+    } catch (error) {
+      actions.reportError(error, "open-file");
+      return false;
+    }
+  };
   const actions = {
     // The full-pane overlays sit above the conversation, so opening one must dismiss them
     // or the click appears to do nothing.
@@ -14363,19 +14377,27 @@ function apply(ctx) {
     exchange: (a, b) => call("exchange", { a, b }).catch(() => []),
     exchangeText: (id) => call("exchange-text", { id }).catch(() => void 0),
     fileText: (file) => call("file-text", { file }).catch(() => void 0),
-    // A group chat's file chip (send_file): the panel shows the file in the chat
-    // itself — an image, a PDF, a table's rows, a document's text. The host reads
-    // the Office kinds; the browser renders the rest from the bytes.
-    previewFile: (file) => ui3.set((state) => ({ ...state, file })),
+    // A group chat's file chip (send_file): the file sits in a folder the group
+    // works in, so DSH's own file viewer opens it in the right sidebar — the same
+    // view a normal chat gives a file. When the path is unknown (a message that
+    // never carried one, a restart, a file that moved) the panel in the chat shows
+    // it from the bytes instead: an image, a PDF, a table's rows, a document's text.
+    openFile: async (file) => {
+      let path = typeof file?.path === "string" && file.path !== "" ? file.path : void 0;
+      if (path === void 0) path = (await call("file-locate", { file }).catch(() => null))?.path ?? void 0;
+      if (path !== void 0 && openInSidebar(path)) return;
+      ui3.set((state) => ({ ...state, file }));
+    },
     closeFile: () => ui3.set((state) => state.file ? { ...state, file: null } : state),
+    previewFile: (file) => ui3.set((state) => ({ ...state, file })),
     filePreview: (file) => call("file-preview", { file }),
     fileBytes: async (file) => {
       const response = await callFile("file-open", { file });
       return await response.blob();
     },
-    // A group chat's file chip (send_file): the host stages the bytes and opens the
-    // file with the app that owns it, on the machine the host runs on.
-    openFile: async (file) => {
+    // A file the panel cannot show, or a reader who wants the copy: the host stages
+    // the bytes and opens the file with the app that owns it, on this machine.
+    launchFile: async (file) => {
       try {
         await call("file-launch", { file });
       } catch (error) {
