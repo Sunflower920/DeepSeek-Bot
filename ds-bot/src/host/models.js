@@ -143,6 +143,22 @@ export function install(rt) {
 
   const sameSelection = (a, b) => a.provider === b.provider && a.model === b.model && a.reasoningEffort === b.reasoningEffort
 
+  // Snapshots of where each Bot was routed, newest last and bounded: enough to
+  // say what a turn ran on without keeping every selection ever made.
+  const ROUTES_KEPT = 100
+  function recordRoute(bot, { ref, effort, route, forced = false }) {
+    state.routeSnapshots ??= []
+    state.routeSnapshots.push({
+      at: Date.now(), botId: bot.id, bot: bot.name,
+      asked: bot.model ?? null, applied: ref,
+      ...(effort === undefined ? {} : { effort }),
+      ...(route?.reasoningEffort === undefined ? {} : { reasoningEffort: route.reasoningEffort }),
+      forced,
+    })
+    if (state.routeSnapshots.length > ROUTES_KEPT) state.routeSnapshots = state.routeSnapshots.slice(-ROUTES_KEPT)
+  }
+  const routesView = () => (state.routeSnapshots ?? []).slice(-20)
+
   // `force` re-selects even when the record says it is applied: the composer's own
   // model picker can move the Session without telling this plugin.
   async function applyModel(bot, { force = false } = {}) {
@@ -159,6 +175,10 @@ export function install(rt) {
     bot.appliedModel = ref
     if (effort === undefined) delete bot.appliedEffort
     else bot.appliedEffort = effort
+    // The route a Bot is actually on, kept as a snapshot: what it asked for,
+    // what it got, and when - so a turn can be reproduced, and "it ran on the
+    // wrong model" is a question with an answer on record.
+    rt.recordRoute?.(bot, { ref, effort, route, forced: force })
     await rt.save()
     return ref
   }
@@ -198,5 +218,6 @@ export function install(rt) {
     catalog, cachedCatalog: () => catalogCache.value, cachedDefault: () => pickDefault(catalogCache.value),
     defaultRef, defaultModel, resolveModel, desiredModel, reasoningOf, resolveEffort, desiredEffort,
     selectSessionModel, applyModel, waitForModel, syncModels,
+    recordRoute, routesView,
   })
 }

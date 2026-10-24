@@ -166,6 +166,9 @@ export function install(rt) {
     audits: rt.auditsView(),
     // Declared tool policies, and which Bot or group is held to which.
     toolPolicies: state.toolPolicies ?? {},
+    // Where each Bot was routed, so a turn can be reproduced and a wrong-model
+    // claim can be answered from the record.
+    routeSnapshots: rt.routesView(),
     exchangeTurns: state.exchangeTurns,
     questions: state.questions,
     // The team's DSH Agent (at most one): plain dsh Sessions, not Bots.
