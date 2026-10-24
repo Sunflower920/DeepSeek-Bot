@@ -4651,7 +4651,8 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
       const fresh = (fold?.events ?? []).filter((line) => line.seq > seenSeq);
       if (fresh.length > 0) {
         seenSeq = fresh.at(-1).seq;
-        setEvents((current) => [...current, ...fresh].slice(-40));
+        const mine = fresh.filter((line) => (callId === void 0 || line.callId === void 0 || line.callId === callId) && (line.type !== "round.start" || (line.slots ?? []).length > 0));
+        if (mine.length > 0) setEvents((current) => [...current, ...mine].slice(-40));
       }
       timer = setTimeout(tick, document.hidden ? 5e3 : 1e3);
     };
@@ -4680,6 +4681,7 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
     events.map((line) => {
       if (line.type === "round.start") {
         const order = (line.slots ?? []).map((slot) => slot.name).join(" → ");
+        if (order === "") return null;
         const standby = (line.standby ?? []).join(", ");
         return (0, import_react7.createElement)(
           "div",

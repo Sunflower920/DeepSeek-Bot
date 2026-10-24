@@ -648,7 +648,14 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
       const fold = await actions.roomEvents?.(sessionId, seenSeq)
       if (stop) return
       const fresh = (fold?.events ?? []).filter(line => line.seq > seenSeq)
-      if (fresh.length > 0) { seenSeq = fresh.at(-1).seq; setEvents(current => [...current, ...fresh].slice(-40)) }
+      if (fresh.length > 0) {
+        seenSeq = fresh.at(-1).seq
+        // Only this exchange's rounds, and only the ones with an order to show: a
+        // round nobody was called into stays in the record, not in this panel.
+        const mine = fresh.filter(line => (callId === undefined || line.callId === undefined || line.callId === callId)
+          && (line.type !== 'round.start' || (line.slots ?? []).length > 0))
+        if (mine.length > 0) setEvents(current => [...current, ...mine].slice(-40))
+      }
       timer = setTimeout(tick, document.hidden ? 5000 : 1000)
     }
     void tick()
@@ -667,7 +674,9 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   return h('div', { className: 'bt-group-replies' },
     events.map(line => {
       if (line.type === 'round.start') {
+        // A round nobody was called into (a quiet post, say) has no order to show.
         const order = (line.slots ?? []).map(slot => slot.name).join(' → ')
+        if (order === '') return null
         const standby = (line.standby ?? []).join(', ')
         return h('div', { key: `ev-${line.seq}`, className: 'bt-event' },
           line.kickoff === true ? t('The group starts with {order}', { order })

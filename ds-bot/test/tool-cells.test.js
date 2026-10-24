@@ -326,7 +326,15 @@ test('a PTC group relay shows its replies from the sub-call, live and after relo
 
   const progress = [{ callId: 'other', replies: [{ botId: 'chief', text: 'Not this round.' }] }, { callId: 'call-1-1:ptc:1', replies: replies.slice(0, 1), speaking: 'chief' }]
   const asked = []
-  const actions = { roomProgress: async (id) => { asked.push(id); return progress } }
+  // The room's lifecycle record holds every round it ran; this panel folds in
+  // only the exchange's own, so an older round's order is not replayed here.
+  const events = [
+    { seq: 1, at: 1, type: 'round.start', callId: 'other', slots: [{ id: 'x', name: 'Old Bot' }] },
+    { seq: 2, at: 2, type: 'round.start', callId: 'call-1-1:ptc:1', slots: [{ id: 'chief', name: 'Chief' }], standby: ['Writer'] },
+    { seq: 3, at: 3, type: 'round.start', callId: 'call-1-1:ptc:1', slots: [] },
+    { seq: 4, at: 4, type: 'quiet', limit: 10 },
+  ]
+  const actions = { roomProgress: async (id) => { asked.push(id); return progress }, roomEvents: async (id, since) => ({ events: since > 0 ? [] : events, seq: 4 }) }
   const running = program([call('group_relay', 'call-1-1:ptc:1', { running: true })], { running: true })
   const relay = find(ToolCell(props(running, { sessionId: 'room', actions })), node => node.type?.name === 'GroupReplies')
   effects = []
@@ -337,7 +345,15 @@ test('a PTC group relay shows its replies from the sub-call, live and after relo
   stop()
   timers.clear()
   assert.deepEqual(asked, ['room'])
-  assert.deepEqual(JSON.parse(JSON.stringify(sets)), [{ replies: replies.slice(0, 1), speaking: 'chief' }])
+  // The mock records every setter call; the lifecycle fold uses the updater form
+  // (the tick loop outlives one render), so it arrives as a function of the state.
+  const folded = sets.filter(entry => entry !== undefined && typeof entry !== 'function').map(entry => JSON.parse(JSON.stringify(entry)))
+  assert.deepEqual(folded.filter(entry => !Array.isArray(entry)), [{ replies: replies.slice(0, 1), speaking: 'chief' }])
+  const updaters = sets.filter(entry => typeof entry === 'function')
+  assert.ok(updaters.length > 0, 'the lifecycle events are folded in')
+  // The bundled cells run in their own realm, so the fold arrives on that realm's
+  // Array; Array.from brings it home before the deep compare.
+  assert.deepEqual(Array.from(updaters.at(-1)([])).map(line => line.seq), [2, 4], "another round's start stays out, and a round nobody was called into draws nothing")
 })
 
 // #105: the secret and question cards of a PTC program showed nowhere.
