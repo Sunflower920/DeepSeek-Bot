@@ -112,6 +112,9 @@ export function install(rt) {
       .filter(sessionId => rt.live.get(sessionId)?.turn !== undefined)
     return { running, idle: running.length === 0 }
   }
+  // A group round asks before it calls a member: one live turn per Bot, so an
+  // answer never crosses another room's.
+  rt.activeSessions = activeSessions
   const whereOf = (sessionId) => {
     const room = rt.roomOf(rt.groupOwners.get(sessionId)?.roomId)
     return room ? `group "${room.name}"` : 'its own chat'

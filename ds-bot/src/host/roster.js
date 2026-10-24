@@ -537,6 +537,10 @@ export function install(rt) {
     // Questions and exchange turns are kept per Session, so every part of the chat is cleared.
     const parts = new Set([id, current, ...(bot.segments ?? []).map(segment => segment.sessionId)])
     await rt.releaseBot(id, [...parts, ...rt.groupSessionsOf(id)])
+    // A session that wakes after its Bot is gone is refused by name, not dropped
+    // in silence: the deny-list says which Bot it was, so a late answer is told
+    // apart from one that never came.
+    rt.retireSessions(state, [...parts, ...rt.groupSessionsOf(id)], bot.name)
     delete state.bots[id]
     for (const part of parts) {
       delete state.questions[part]

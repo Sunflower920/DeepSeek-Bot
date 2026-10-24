@@ -599,7 +599,23 @@ export function install(rt) {
       const references = posts.flatMap(post => post.references ?? [])
       // A member a Bot's post calls by name works for that Bot.
       const named = opener.botId === undefined ? [] : mentionsIn(opener.text ?? '', room.members.map(rt.botOf).filter(Boolean)).found
-      const { speakers, standby } = openingSpeakers(room, opener)
+      let { speakers, standby } = openingSpeakers(room, opener)
+      // One live turn per Bot, counted across rooms: a member working somewhere
+      // else - another group's round, or its own chat with the user - waits here
+      // too, so this round never stalls on another room's work. A member working
+      // in THIS room is the hand-off the round is built for: its message queues
+      // and its answer comes back late, which is how work is handed on.
+      const busy = speakers.filter(member => {
+        const here = room.sessions?.[member.id]
+        return rt.activeSessions(member.id).running.some(sessionId => sessionId !== here)
+      })
+      if (busy.length > 0) {
+        speakers = speakers.filter(member => !busy.includes(member))
+        // A working member was called first, so it keeps its place at the head of
+        // the waiting list, ahead of the ones that followed it.
+        standby = [...busy, ...standby]
+        appendRoom(room, { who: 'DS Bot', kind: 'notice', text: `@${busy.map(bot => bot.name).join(' and @')} was still working in another chat, so this round went on without ${busy.length > 1 ? 'them' : 'it'}.` })
+      }
       const round = {
         roomId: room.id,
         members: room.members,
@@ -819,6 +835,7 @@ export function install(rt) {
   // that ends with nothing more to say still tells the member that asked for it, which
   // answers the result: where the result sits in the turn decides nothing.
   async function lateRoomReply(sessionId, info, reply, { shown = false } = {}) {
+    if (refuseRetired(sessionId, info)) return
     const owner = rt.groupOwners.get(sessionId)
     const room = rt.roomOf(owner?.roomId ?? info.roomId)
     const member = rt.botOf(owner?.botId)
@@ -842,6 +859,18 @@ export function install(rt) {
     const member = rt.botOf(owner?.botId)
     return room !== undefined && member !== undefined && room.members.includes(member.id) ? { room, member } : undefined
   }
+  // A Bot deleted while its work was still running: the answer it was writing is
+  // refused where it would land, and the group is told, rather than dropped in
+  // silence. True when the session is one the team retired.
+  const refuseRetired = (sessionId, info) => {
+    if (!rt.isRetired(rt.state, sessionId)) return false
+    const room = rt.roomOf(info?.roomId)
+    if (room === undefined) return false
+    const gone = rt.state.retiredSessions[sessionId]?.name ?? 'a removed Bot'
+    rt.emitEvent(room.id, 'retired.refused', { name: gone })
+    rt.warn('ds-bot: a late post from the removed Bot %s in %s was refused', gone, room.name)
+    return true
+  }
   const callsIn = (room, member, text) => mentionsIn(text, room.members.map(rt.botOf).filter(Boolean)).found.some(bot => bot.id !== member.id)
 
   // What a member says while it works, into the group. While the member holds its place
@@ -851,6 +880,7 @@ export function install(rt) {
   async function postStep(sessionId, info, text) {
     const waiter = info?.role === 'room' ? rt.roomWaiters.get(info.exchangeId) : undefined
     if (waiter !== undefined) return waiter.say(text)
+    if (refuseRetired(sessionId, info)) return
     const { room, member } = memberIn(sessionId, info) ?? {}
     if (room === undefined) return
     ensureRoomLog(room)
