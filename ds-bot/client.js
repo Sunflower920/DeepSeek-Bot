@@ -90,8 +90,9 @@ var ZH = {
   "Open {name}'s chat": "打开 {name} 的对话",
   "Open {name}": "打开 {name}",
   "Download {name}": "下载 {name}",
-  "Preview of {name}": "预览 {name}",
+  "Open {name} with its app": "用本机应用打开 {name}",
   "Open it with its app": "用本机应用打开",
+  "Preview of {name}": "预览 {name}",
   "Showing the file inside DSH.": "正在 DSH 里显示这个文件。",
   "{name} cannot be shown here.": "{name} 无法在这里显示。",
   "The first {count} rows.": "仅显示前 {count} 行。",
@@ -2097,6 +2098,8 @@ button.bt-lead{border:0;background:none;padding:0;cursor:pointer}
 .bt-file-btn:hover{background:var(--bt-hover)}
 .bt-gfile-open{flex:none;display:inline-flex;color:var(--bt-ink-3);cursor:pointer;border-radius:4px;padding:2px}
 .bt-gfile-open:hover{color:var(--bt-accent);background:var(--bt-hover)}
+.bt-gfile-app{flex:none;display:inline-flex;color:var(--bt-ink-3);cursor:pointer;border-radius:4px;padding:2px}
+.bt-gfile-app:hover{color:var(--bt-accent);background:var(--bt-hover)}
 .bt-gfile-open svg{width:16px;height:16px}
 .bt-x{border:0;background:none;color:var(--bt-ink-2);cursor:pointer;width:24px;height:24px;border-radius:6px;font-size:16px;line-height:24px;padding:0;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, "scale")}}
 .bt-x:hover{background:var(--bt-hover);color:var(--bt-ink)}
@@ -4236,7 +4239,11 @@ function GroupFiles({ files, actions, sessionId }) {
       (0, import_react7.createElement)("span", { className: "bt-gfile-open", role: "button", tabIndex: -1, title: t("Download {name}", { name: file.name }), "aria-label": t("Download {name}", { name: file.name }), onClick: (event) => {
         event.stopPropagation();
         actions.downloadFile?.(file);
-      } }, (0, import_react7.createElement)(DownloadIcon))
+      } }, (0, import_react7.createElement)(DownloadIcon)),
+      (0, import_react7.createElement)("span", { className: "bt-gfile-app", role: "button", tabIndex: -1, title: t("Open it with its app"), "aria-label": t("Open {name} with its app", { name: file.name }), onClick: (event) => {
+        event.stopPropagation();
+        actions.launchFile?.(file);
+      } }, (0, import_react7.createElement)(ShareIcon))
     );
   }));
 }

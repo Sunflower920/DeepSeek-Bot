@@ -4,7 +4,7 @@ import { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import * as ui from '@deepseek-ai/dsh-client-ui-primitives'
 import { inkText } from './inks.js'
 import { linkMentions, mentionTarget, dayLabel, contentText, stripHeader, isHiddenTurn, isRelayContext, relaysBefore, relayPart, commRunOf, toolName, toolArgs, reminderPrompts } from './text.js'
-import { SmileIcon, ReplyIcon, DotsIcon, CheckIcon, DownloadIcon, CopyIcon, MemoryIcon } from './icons.js'
+import { SmileIcon, ReplyIcon, DotsIcon, CheckIcon, DownloadIcon, CopyIcon, MemoryIcon, ShareIcon } from './icons.js'
 import { colorOf, toolState, BotMark, RoomAvatar } from './mark.js'
 import { AnsweredCell, SettledQuestion, PendingQuestion } from './questions.js'
 import { SecretToolCell } from './secret-card.js'
@@ -217,8 +217,9 @@ function GroupMessage({ bot, text, texts = [text], files = [], room, roster, act
 // Files a Bot sent into the group (send_file), which the user opens from the chat: the
 // bytes come from the host on a click, so a chip works without a path on the screen.
 // Clicking the chip opens the file in DSH's own viewer (the right sidebar), read through
-// this group's Session, where the file sits in a folder the group works in; the small
-// icon downloads a copy instead.
+// this group's Session, where the file sits in a folder the group works in. The icons
+// beside it take the file outside that viewer: the download keeps a copy, the app button
+// opens it in Excel or Word — what a table past DSH's preview limits needs.
 function GroupFiles({ files, actions, sessionId }) {
   return h('div', { className: 'bt-gfiles' }, files.map((file, index) => {
     const meta = [ui.fileExtension?.(file.name)?.toUpperCase().slice(0, 8), ui.fileSizeText?.(file.bytes)].filter(Boolean).join(' · ')
@@ -227,7 +228,8 @@ function GroupFiles({ files, actions, sessionId }) {
       h('span', { className: 'bt-gfile-text' },
         h('span', { className: 'bt-gfile-name' }, file.name),
         meta ? h('span', { className: 'bt-gfile-meta' }, meta) : null),
-      h('span', { className: 'bt-gfile-open', role: 'button', tabIndex: -1, title: t('Download {name}', { name: file.name }), 'aria-label': t('Download {name}', { name: file.name }), onClick: event => { event.stopPropagation(); actions.downloadFile?.(file) } }, h(DownloadIcon)))
+      h('span', { className: 'bt-gfile-open', role: 'button', tabIndex: -1, title: t('Download {name}', { name: file.name }), 'aria-label': t('Download {name}', { name: file.name }), onClick: event => { event.stopPropagation(); actions.downloadFile?.(file) } }, h(DownloadIcon)),
+      h('span', { className: 'bt-gfile-app', role: 'button', tabIndex: -1, title: t('Open it with its app'), 'aria-label': t('Open {name} with its app', { name: file.name }), onClick: event => { event.stopPropagation(); actions.launchFile?.(file) } }, h(ShareIcon)))
   }))
 }
 

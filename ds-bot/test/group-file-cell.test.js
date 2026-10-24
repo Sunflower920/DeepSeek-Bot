@@ -94,6 +94,13 @@ test('a post with a file draws a chip that opens the file where it sits', () => 
   assert.ok(icon, 'the chip carries a download control')
   icon.props.onClick({ stopPropagation: () => {} })
   assert.deepEqual(saved, [file], 'the icon downloads without opening the viewer')
+  const app = find(chip, item => item.props?.className === 'bt-gfile-app')
+  assert.ok(app, 'the chip carries an open-with-its-app control')
+  const launched = []
+  const node2 = draw(post([{ type: 'text', text: '[Group post from Writer]\nThe report.' }, { type: 'file', attachment: file }]), { openFile: () => {}, downloadFile: () => {}, launchFile: file => launched.push(file) })
+  const appIcon = find(find(node2, item => item.props?.className === 'bt-gfile'), item => item.props?.className === 'bt-gfile-app')
+  appIcon.props.onClick({ stopPropagation: () => {} })
+  assert.deepEqual(launched, [file], 'the app icon opens the file outside DSH, for tables past its preview limits')
 })
 test('two files in one post draw two chips', () => {
   const files = [

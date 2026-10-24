@@ -230,6 +230,8 @@ button.bt-lead{border:0;background:none;padding:0;cursor:pointer}
 .bt-file-btn:hover{background:var(--bt-hover)}
 .bt-gfile-open{flex:none;display:inline-flex;color:var(--bt-ink-3);cursor:pointer;border-radius:4px;padding:2px}
 .bt-gfile-open:hover{color:var(--bt-accent);background:var(--bt-hover)}
+.bt-gfile-app{flex:none;display:inline-flex;color:var(--bt-ink-3);cursor:pointer;border-radius:4px;padding:2px}
+.bt-gfile-app:hover{color:var(--bt-accent);background:var(--bt-hover)}
 .bt-gfile-open svg{width:16px;height:16px}
 .bt-x{border:0;background:none;color:var(--bt-ink-2);cursor:pointer;width:24px;height:24px;border-radius:6px;font-size:16px;line-height:24px;padding:0;transition:background-color .12s ease,color .12s ease,${spring(SPRING_TAP, 'scale')}}
 .bt-x:hover{background:var(--bt-hover);color:var(--bt-ink)}
