@@ -269,3 +269,60 @@ test('a deleted group stays readable after the delete', async (t) => {
   assert.equal(seen[0].name, 'R1')
   assert.deepEqual(seen[0].memberNames, ['Chief', 'Writer', 'Reviewer'])
 })
+
+// A group round states its intent in the prompt: the gateway's closing-directive
+// test cannot see a directive quoted inside a long round prompt (live 2026-10-25
+// 00:29: "只回复一个收到" rotated twice on the reply "收到" and died at the
+// budget), so the round says it in one line the gateway reads.
+const settle = async (ready, tries = 200) => {
+  for (let index = 0; index < tries; index++) {
+    if (await ready()) return true
+    await new Promise(resolve => setTimeout(resolve, 25))
+  }
+  return false
+}
+const promptFor = (sent, sessionId) => {
+  const entry = [...sent].reverse().find(item => item.sessionId === sessionId)
+  return entry?.message?.content?.find(block => block.type === 'text')?.text ?? ''
+}
+// Runs a round to its end: the relay starts, the member's turn is delivered, the
+// member answers, the round concludes. Returns the member's group Session id.
+async function drivenRound({ tool, emit, sent, rt }, room, memberId, answer) {
+  const stop = new AbortController()
+  let result
+  void tool('group_relay', {}, room.id, { callId: `relay-${Math.random()}`, signal: stop.signal }).then(value => { result = value })
+  const sessionId = await settle(async () => {
+    const id = rt.state.rooms[room.id].sessions?.[memberId]
+    return id !== undefined && promptFor(sent, id) !== ''
+  }) ? rt.state.rooms[room.id].sessions[memberId] : undefined
+  if (sessionId === undefined) return undefined
+  await emit(sessionId, { type: 'assistant/message', data: { message: { content: [{ type: 'text', text: answer }] } } })
+  await emit(sessionId, { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } })
+  await settle(() => result !== undefined)
+  stop.abort()
+  return sessionId
+}
+
+test('a round that asks only for an acknowledgement says so in the prompt', async (t) => {
+  const { call, tool, emit, stop, sent, rt } = start()
+  t.after(stop)
+  const { chief, writer, room } = await team(call)
+  await tool('post_to_group', { group: 'R1', message: '@Writer 只回复一个「收到」，不要做其他任何操作' }, rt.chatOf(chief))
+  const post = sent.find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
+  await emit(room.id, { type: 'user/message', data: { source: post.message.source, content: post.message.content } })
+  const sessionId = await drivenRound({ tool, emit, sent, rt }, room, writer.id, '收到')
+  assert.ok(sessionId, 'the member was called')
+  assert.match(promptFor(sent, sessionId), /this round asks for an acknowledgement only/, 'the round states its intent')
+})
+
+test('a round that asks for work says nothing of the sort', async (t) => {
+  const { call, tool, emit, stop, sent, rt } = start()
+  t.after(stop)
+  const { chief, writer, room } = await team(call)
+  await tool('post_to_group', { group: 'R1', message: '@Writer 帮忙核一下这个交付包' }, rt.chatOf(chief))
+  const post = sent.find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
+  await emit(room.id, { type: 'user/message', data: { source: post.message.source, content: post.message.content } })
+  const sessionId = await drivenRound({ tool, emit, sent, rt }, room, writer.id, '核完了，十条都对得上。')
+  assert.ok(sessionId, 'the member was called')
+  assert.doesNotMatch(promptFor(sent, sessionId), /acknowledgement only/, 'a work round carries no such note')
+})

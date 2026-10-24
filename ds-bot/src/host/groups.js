@@ -221,6 +221,24 @@ export function install(rt) {
 
   // Lines from before the round's opening message are kept apart from this round, so
   // an earlier round (an old count-off, say) never reads as part of the current one.
+  // A post that asks for nothing but an acknowledgement. The same closing test
+  // the gateway runs on a short user message, run here on the post that opened
+  // the round: a group round prompt is long, so the gateway cannot see the
+  // directive inside it - the round states its intent instead (the gateway's
+  // ROUND_ACK_MARKER), and a member's "收到" ships as the answer it is instead
+  // of rotating into an announce-only budget (live 2026-10-25 00:29).
+  const CLOSING_MARK = /(收工|结束吧|不用了|不必了|先这样|就这样|可以了|行了|够了|算了|辛苦了|谢谢|感谢|不存档|不用存档|先存档|存档吧|随时叫我|有活.*叫我|下班|明天再|下次再|暂停|停下|停吧|好吧|好的|好|可以|嗯|收到)/
+  const ACTION_REQUEST = /(接下来|马上|立刻|立即|开始|动起来|改一下|做一下|试一下|跑一下|处理|改|做|执行|跑|调用|查|找|分析|写|生成|创建|新建|删除|修|排查|检查|测试|部署|安装|配置|更新|优化|重构|翻译|总结|列出|统计|对比|帮我|请|麻烦)/
+  const ACTION_NEGATED = /(不用|不必|不需要|不要|不准|不许|无须|别|先不|甭|禁止)/
+  const asksAcknowledgementOnly = text => {
+    const value = String(text ?? '').trim()
+    if (value === '' || value.length > 60) return false
+    if (!CLOSING_MARK.test(value)) return false
+    if (ACTION_NEGATED.test(value)) return true
+    return !ACTION_REQUEST.test(value)
+  }
+  const ACK_ROUND_NOTE = 'Round note: this round asks for an acknowledgement only; no work is requested.'
+
   // `files` are the files of the lines shown, which go to the member with the prompt.
   function roomPrompt(room, member, round) {
     const peers = room.members.filter(id => id !== member.id).map(rt.botOf).filter(Boolean)
@@ -248,6 +266,7 @@ export function install(rt) {
         : 'Nothing new in this round since your last message.',
       round.shown?.includes(member.id) ? '' : referenceNote(round.references),
       working.length > 0 ? `Still at work on what they were asked; each posts here when done: ${working.map(item => `${item.bot.name} (${minutesSince(item.since)} min${item.unread > 0 ? `, with ${item.unread} group message(s) it has not read yet` : ''})`).join(', ')}.` : '',
+      round.ackOnly ? ACK_ROUND_NOTE : '',
       `Speaking order for this round: ${round.slots.map(slotLabel).join(' → ')}.`,
       `You are number ${index + 1} of ${round.slots.length}. ${before === 0 ? 'Nobody spoke before you' : `${before} went before you`}${after === 0 ? ', and you are the last.' : `; ${after} after you will see your message.`}`,
       ROOM_REPLY,
@@ -437,6 +456,9 @@ export function install(rt) {
     for (const line of lines) {
       appendRoom(room, { who: 'User', text: line.text })
       round.replies.push({ kind: 'user', text: line.text, time: Date.now() })
+      // A message that asks for work overrides the acknowledgement-only intent the
+      // round opened with, so the marker does not outlive the instruction.
+      if (!asksAcknowledgementOnly(line.text)) delete round.ackOnly
       const { all, found } = mentionsIn(line.text, members)
       const note = all || found.length > 0 ? 'the user mentioned you' : 'new message from the user'
       callMembers(round, turns, index - 1, openingSpeakers(room, { text: line.text }).speakers, note, ROOM_ADMIN_TURNS_EACH)
@@ -625,6 +647,7 @@ export function install(rt) {
           ...(opener.done ? { note: `${opener.name ?? 'a member'} finished the work you asked for` } : {}),
         })),
         standby: standby.map(bot => bot.id),
+        ...(asksAcknowledgementOnly(opener.text) ? { ackOnly: true } : {}),
         speaking: null,
         turns: 0,
         replies: [],
