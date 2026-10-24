@@ -34,7 +34,7 @@ import { ABOUT_CSS } from './about.js'
 import { MEMBER_CSS, MemberDock } from './member-status.js'
 import { USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages } from './user-message.js'
 import { noticeApprovals } from './approval-notices.js'
-import { fileAddress } from './file-address.js'
+import { fileSessionAddress } from './file-address.js'
 
 export const inject = ['sessions', 'uiWorkspace', 'uiConversation', 'slots', 'theme', 'layout', 'sidebarRight']
 
@@ -342,11 +342,11 @@ export function apply(ctx) {
   }
   // DSH's right sidebar, the file viewer a normal chat uses. False when this DSH has
   // no such service, so the caller can fall back to the chat's own panel.
-  const openInSidebar = path => {
+  const openInSidebar = address => {
     const sidebar = ctx.get?.('sidebarRight')
     if (sidebar?.openResource === undefined) return false
     try {
-      sidebar.openResource(fileAddress(path))
+      sidebar.openResource(address)
       return true
     } catch (error) {
       actions.reportError(error, 'open-file')
@@ -564,13 +564,14 @@ export function apply(ctx) {
     fileText: file => call('file-text', { file }).catch(() => undefined),
     // A group chat's file chip (send_file): the file sits in a folder the group
     // works in, so DSH's own file viewer opens it in the right sidebar — the same
-    // view a normal chat gives a file. When the path is unknown (a message that
-    // never carried one, a restart, a file that moved) the panel in the chat shows
-    // it from the bytes instead: an image, a PDF, a table's rows, a document's text.
-    openFile: async (file) => {
+    // view a normal chat gives a file. The address is the Session's (the room's
+    // chat), the scope DSH's sidebar claims. When the path is unknown (a message
+    // that never carried one, a restart, a file that moved) the panel in the chat
+    // shows it from the bytes instead: an image, a PDF, a table's rows, text.
+    openFile: async (file, sessionId) => {
       let path = typeof file?.path === 'string' && file.path !== '' ? file.path : undefined
       if (path === undefined) path = (await call('file-locate', { file }).catch(() => null))?.path ?? undefined
-      if (path !== undefined && openInSidebar(path)) return
+      if (path !== undefined && typeof sessionId === 'string' && sessionId !== '' && openInSidebar(fileSessionAddress(sessionId, path))) return
       ui.set(state => ({ ...state, file }))
     },
     closeFile: () => ui.set(state => (state.file ? { ...state, file: null } : state)),

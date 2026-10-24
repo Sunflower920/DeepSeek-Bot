@@ -4216,16 +4216,16 @@ function GroupMessage({ bot, text, texts: texts2 = [text], files = [], room: roo
       bot.name,
       room2?.admin === bot.id ? (0, import_react7.createElement)("span", { className: "bt-group-role" }, t("Admin")) : null
     ),
-    files.length > 0 ? (0, import_react7.createElement)(GroupFiles, { files, actions }) : null,
+    files.length > 0 ? (0, import_react7.createElement)(GroupFiles, { files, actions, sessionId: room2?.id }) : null,
     (0, import_react7.createElement)(Bubbles, { texts: texts2, roster, selfId: bot.id, actions, sessionId: room2?.id, msgKey, useUi, lead, whole })
   );
 }
-function GroupFiles({ files, actions }) {
+function GroupFiles({ files, actions, sessionId }) {
   return (0, import_react7.createElement)("div", { className: "bt-gfiles" }, files.map((file, index) => {
     const meta = [ui.fileExtension?.(file.name)?.toUpperCase().slice(0, 8), ui.fileSizeText?.(file.bytes)].filter(Boolean).join(" · ");
     return (0, import_react7.createElement)(
       "button",
-      { key: index, type: "button", className: "bt-gfile", title: file.name, "aria-label": t("Open {name}", { name: file.name }), onClick: () => actions.openFile(file) },
+      { key: index, type: "button", className: "bt-gfile", title: file.name, "aria-label": t("Open {name}", { name: file.name }), onClick: () => actions.openFile(file, sessionId) },
       ui.FileTypeIcon ? (0, import_react7.createElement)(ui.FileTypeIcon, { path: file.name, className: "bt-gfile-icon" }) : null,
       (0, import_react7.createElement)(
         "span",
@@ -13805,7 +13805,10 @@ function noticeApprovals({ work, roster, shownSession, openSession, since: since
 }
 
 // src/client/file-address.js
-var fileAddress = (path) => `dsh-resource://file/absolute/${path.replace(/\\/g, "/").split("/").map((segment) => encodeURIComponent(segment).replace(/%3A/gi, ":")).join("/")}`;
+var encodeSegment = (segment) => encodeURIComponent(segment).replace(/%3A/gi, ":");
+var encodePath = (path) => path.replace(/\\/g, "/").split("/").map(encodeSegment).join("/");
+var fileSessionAddress = (sessionId, path) => `dsh-resource://file/session/${encodeSegment(sessionId)}/${encodePath(path)}`;
+var fileAddress = (path) => `dsh-resource://file/absolute/${encodePath(path)}`;
 
 // src/client/index.js
 var inject = ["sessions", "uiWorkspace", "uiConversation", "slots", "theme", "layout", "sidebarRight"];
@@ -14124,11 +14127,11 @@ function apply(ctx) {
     for (const [id, owner] of pendingAdopt) if (owner === agentId && !ids.includes(id)) ids.push(id);
     return ids;
   };
-  const openInSidebar = (path) => {
+  const openInSidebar = (address) => {
     const sidebar = ctx.get?.("sidebarRight");
     if (sidebar?.openResource === void 0) return false;
     try {
-      sidebar.openResource(fileAddress(path));
+      sidebar.openResource(address);
       return true;
     } catch (error) {
       actions.reportError(error, "open-file");
@@ -14379,13 +14382,14 @@ function apply(ctx) {
     fileText: (file) => call("file-text", { file }).catch(() => void 0),
     // A group chat's file chip (send_file): the file sits in a folder the group
     // works in, so DSH's own file viewer opens it in the right sidebar — the same
-    // view a normal chat gives a file. When the path is unknown (a message that
-    // never carried one, a restart, a file that moved) the panel in the chat shows
-    // it from the bytes instead: an image, a PDF, a table's rows, a document's text.
-    openFile: async (file) => {
+    // view a normal chat gives a file. The address is the Session's (the room's
+    // chat), the scope DSH's sidebar claims. When the path is unknown (a message
+    // that never carried one, a restart, a file that moved) the panel in the chat
+    // shows it from the bytes instead: an image, a PDF, a table's rows, text.
+    openFile: async (file, sessionId) => {
       let path = typeof file?.path === "string" && file.path !== "" ? file.path : void 0;
       if (path === void 0) path = (await call("file-locate", { file }).catch(() => null))?.path ?? void 0;
-      if (path !== void 0 && openInSidebar(path)) return;
+      if (path !== void 0 && typeof sessionId === "string" && sessionId !== "" && openInSidebar(fileSessionAddress(sessionId, path))) return;
       ui3.set((state) => ({ ...state, file }));
     },
     closeFile: () => ui3.set((state) => state.file ? { ...state, file: null } : state),

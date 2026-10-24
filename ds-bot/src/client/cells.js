@@ -210,18 +210,19 @@ function GroupMessage({ bot, text, texts = [text], files = [], room, roster, act
   return h('div', { className: 'bt-group-msg' },
     h('span', { className: 'bt-group-name', style: { color: inkText(colorOf(bot)) } }, bot.name,
       room?.admin === bot.id ? h('span', { className: 'bt-group-role' }, t('Admin')) : null),
-    files.length > 0 ? h(GroupFiles, { files, actions }) : null,
+    files.length > 0 ? h(GroupFiles, { files, actions, sessionId: room?.id }) : null,
     h(Bubbles, { texts, roster, selfId: bot.id, actions, sessionId: room?.id, msgKey, useUi, lead, whole }))
 }
 
 // Files a Bot sent into the group (send_file), which the user opens from the chat: the
 // bytes come from the host on a click, so a chip works without a path on the screen.
-// Clicking the chip opens the file in DSH's own viewer (the right sidebar), where the
-// file sits in a folder this group works in; the small icon downloads a copy instead.
-function GroupFiles({ files, actions }) {
+// Clicking the chip opens the file in DSH's own viewer (the right sidebar), read through
+// this group's Session, where the file sits in a folder the group works in; the small
+// icon downloads a copy instead.
+function GroupFiles({ files, actions, sessionId }) {
   return h('div', { className: 'bt-gfiles' }, files.map((file, index) => {
     const meta = [ui.fileExtension?.(file.name)?.toUpperCase().slice(0, 8), ui.fileSizeText?.(file.bytes)].filter(Boolean).join(' · ')
-    return h('button', { key: index, type: 'button', className: 'bt-gfile', title: file.name, 'aria-label': t('Open {name}', { name: file.name }), onClick: () => actions.openFile(file) },
+    return h('button', { key: index, type: 'button', className: 'bt-gfile', title: file.name, 'aria-label': t('Open {name}', { name: file.name }), onClick: () => actions.openFile(file, sessionId) },
       ui.FileTypeIcon ? h(ui.FileTypeIcon, { path: file.name, className: 'bt-gfile-icon' }) : null,
       h('span', { className: 'bt-gfile-text' },
         h('span', { className: 'bt-gfile-name' }, file.name),
