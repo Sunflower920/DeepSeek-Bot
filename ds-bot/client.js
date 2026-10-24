@@ -98,6 +98,11 @@ var ZH = {
   "The first {count} rows.": "仅显示前 {count} 行。",
   "The first part of the file.": "仅显示文件开头部分。",
   "Close preview": "关闭预览",
+  "This round: {order}": "本轮顺序：{order}",
+  "The group starts with {order}": "群聊开始，顺序：{order}",
+  " · waiting: {names}": " · 待命：{names}",
+  "Not called this round: {names}": "本轮未叫到：{names}",
+  "The group is in quiet mode after {limit} late rounds": "群聊在 {limit} 个迟到回合后进入安静模式",
   "New Bot": "新 Bot",
   // Sidebar and account menu
   "Bot list": "Bot 列表",
@@ -1459,10 +1464,12 @@ function nameProblem(name) {
   const text = String(name ?? "").trim();
   if (text === "") return "A Bot needs a name";
   if (/[@`\r\n]/.test(text)) return "A Bot name cannot contain @, ` or a line break";
+  if (/[\u200b-\u200f\u202a-\u202f\u2060\ufeff]/.test(text)) return "A Bot name cannot contain invisible characters";
   if (ALL_WORDS.includes(text.toLowerCase())) return `"${text}" calls everyone in a group, so it cannot be a Bot name`;
   if (USER_NAMES.includes(text.toLowerCase())) return `"${text}" stands for the user in a chat, so it cannot be a Bot name`;
   return void 0;
 }
+var nameKey = (value) => String(value ?? "").normalize("NFKC").replace(/[\u200b-\u200f\u202a-\u202f\u2060\ufeff]/g, "").trim().toLowerCase().replace(/[\s._-]+/g, "");
 function referenceSpans(text, labels = []) {
   const spans = [];
   for (const label of [...labels].sort((a, b) => b.length - a.length)) {
@@ -4623,11 +4630,13 @@ function useLiveNote(actions, sessionId, id, entry) {
 }
 function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi, useWork }) {
   const [live, setLive] = (0, import_react7.useState)({ replies: [], speaking: null });
+  const [events, setEvents] = (0, import_react7.useState)([]);
   (0, import_react7.useEffect)(() => {
     if (done) return void 0;
     let stop = false;
     let timer;
     let seen = "";
+    let seenSeq = 0;
     const tick = async () => {
       const result = await actions.roomProgress(sessionId);
       if (stop) return;
@@ -4636,6 +4645,13 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
       if (entry && key !== seen) {
         seen = key;
         setLive({ replies: entry.replies ?? [], speaking: entry.speaking ?? null });
+      }
+      const fold = await actions.roomEvents?.(sessionId, seenSeq);
+      if (stop) return;
+      const fresh = (fold?.events ?? []).filter((line) => line.seq > seenSeq);
+      if (fresh.length > 0) {
+        seenSeq = fresh.at(-1).seq;
+        setEvents((current) => [...current, ...fresh].slice(-40));
       }
       timer = setTimeout(tick, document.hidden ? 5e3 : 1e3);
     };
@@ -4661,6 +4677,20 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   return (0, import_react7.createElement)(
     "div",
     { className: "bt-group-replies" },
+    events.map((line) => {
+      if (line.type === "round.start") {
+        const order = (line.slots ?? []).map((slot) => slot.name).join(" → ");
+        const standby = (line.standby ?? []).join(", ");
+        return (0, import_react7.createElement)(
+          "div",
+          { key: `ev-${line.seq}`, className: "bt-event" },
+          line.kickoff === true ? t("The group starts with {order}", { order }) : t("This round: {order}", { order }) + (standby !== "" ? t(" · waiting: {names}", { names: standby }) : "")
+        );
+      }
+      if (line.type === "standby.dropped") return (0, import_react7.createElement)("div", { key: `ev-${line.seq}`, className: "bt-event" }, t("Not called this round: {names}", { names: (line.names ?? []).join(", ") }));
+      if (line.type === "quiet") return (0, import_react7.createElement)("div", { key: `ev-${line.seq}`, className: "bt-event" }, t("The group is in quiet mode after {limit} late rounds", { limit: line.limit }));
+      return null;
+    }),
     stackReplies(replies).map(({ reply, index, texts: texts2 }) => {
       const bot = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name, color: reply.color ?? "gray" };
       if (reply.kind === "user") {
@@ -14429,6 +14459,9 @@ function apply(ctx) {
       }
     },
     roomProgress: (roomId) => call("room-progress", { roomId }).catch(() => []),
+    // A group's lifecycle events (round shape, drops, quiet notices), polled with
+    // the progress while a round runs and replayed after a restart.
+    roomEvents: (roomId, since2) => call("room-events", { roomId, since: since2 }).catch(() => ({ events: [], seq: since2 ?? 0 })),
     earlier: (sessionId, cursor) => call("earlier", { sessionId, cursor: cursor ?? null }),
     // Hours come back in this browser's time zone, so days start at local midnight.
     usage: () => call("usage", { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),

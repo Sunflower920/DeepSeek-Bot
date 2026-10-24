@@ -4,7 +4,7 @@ import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { MAX_AVATAR_IMAGE, ROOM_MAX_MEMBERS, ROOM_MODES, ROOM_NAME_MAX, ROOM_NOTICE_MAX } from './constants.js'
 import { currentColor, isColor, normalize, unquote } from './text.js'
-import { nameProblem } from '../shared/mentions.js'
+import { nameKey, nameProblem } from '../shared/mentions.js'
 
 export function install(rt) {
   const { ctx, config, home, defaults, state } = rt
@@ -85,6 +85,12 @@ export function install(rt) {
     }
   }
   const botNameTaken = name => rt.findBot(name) !== undefined || isHeld('bot', name)
+  // The name a live Bot already answers to, when it is the same name in another
+  // spelling ("Dev Lead" and "dev-lead" are one name to a reader).
+  const nameSpellingClash = name => {
+    const clash = rt.findBot(name)
+    return clash !== undefined && nameKey(clash.name) === nameKey(name) && clash.name !== name ? clash.name : undefined
+  }
 
   const freshName = (base) => {
     const stem = base.slice(0, 34)
@@ -100,7 +106,8 @@ export function install(rt) {
     const cleanName = String(options.name ?? '').trim().slice(0, 40)
     const problem = nameProblem(cleanName)
     if (problem !== undefined) throw new Error(problem)
-    if (botNameTaken(cleanName)) throw new Error(`A Bot named ${cleanName} already exists`)
+    const spelling = nameSpellingClash(cleanName)
+    if (botNameTaken(cleanName)) throw new Error(`A Bot named ${cleanName} already exists${spelling !== undefined ? ` — the same name as "${spelling}", spelled differently` : ''}`)
     return holdName('bot', cleanName, () => buildBot(cleanName, options))
   }
 
@@ -213,7 +220,10 @@ export function install(rt) {
       const next = String(patch.name).trim().slice(0, 40)
       const clash = rt.findBot(next)
       const pending = isHeld('bot', next) && normalize(next) !== normalize(bot.name)
-      if (next === '' || (clash && clash.id !== id) || pending) throw new Error(`Name ${next} is not available`)
+      if (next === '' || (clash && clash.id !== id) || pending) {
+        const spelling = clash !== undefined && clash.id !== id && nameKey(clash.name) === nameKey(next) ? ` — the same name as "${clash.name}", spelled differently` : ''
+        throw new Error(`Name ${next} is not available${spelling}`)
+      }
       // A name saved before the rule stays usable until it changes.
       const problem = next === bot.name ? undefined : nameProblem(next)
       if (problem !== undefined) throw new Error(problem)
@@ -285,7 +295,14 @@ export function install(rt) {
 
   function cleanRoomName(text, selfId) {
     const next = unquote(text).replace(/\s+/g, ' ').slice(0, ROOM_NAME_MAX)
-    if (next !== '' && (rt.findRooms(next).some(room => room.id !== selfId) || isHeld('room', next))) throw new Error(`Another group chat is already called "${next}"`)
+    if (next !== '') {
+      const clash = rt.findRooms(next).find(room => room.id !== selfId)
+      const held = isHeld('room', next)
+      if (clash !== undefined || held) {
+        const spelling = clash !== undefined && nameKey(clash.name) === nameKey(next) && clash.name !== next ? ` — the same name as "${clash.name}", spelled differently` : ''
+        throw new Error(`Another group chat is already called "${next}"${spelling}`)
+      }
+    }
     return next
   }
 

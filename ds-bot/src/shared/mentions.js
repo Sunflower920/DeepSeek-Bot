@@ -27,10 +27,26 @@ export function nameProblem(name) {
   const text = String(name ?? '').trim()
   if (text === '') return 'A Bot needs a name'
   if (/[@`\r\n]/.test(text)) return 'A Bot name cannot contain @, ` or a line break'
+  // Invisible characters make two names read as one ("dev" and "dev​"), so a
+  // reader cannot tell which Bot a message means. They are refused, not folded.
+  if (/[\u200b-\u200f\u202a-\u202f\u2060\ufeff]/.test(text)) return 'A Bot name cannot contain invisible characters'
   if (ALL_WORDS.includes(text.toLowerCase())) return `"${text}" calls everyone in a group, so it cannot be a Bot name`
   if (USER_NAMES.includes(text.toLowerCase())) return `"${text}" stands for the user in a chat, so it cannot be a Bot name`
   return undefined
 }
+
+// The canonical key of a name: one key stands for one Bot or group, whatever
+// spaces, dashes, dots, case or width the name was written with. "Dev Lead",
+// "dev-lead" and "devlead" are one name to a reader, so the second of them is
+// refused at creation rather than resolving to whichever came first. Lookups
+// fall back to the key, so a mention written with the other spelling still
+// finds the one that exists.
+export const nameKey = value => String(value ?? '')
+  .normalize('NFKC')
+  .replace(/[\u200b-\u200f\u202a-\u202f\u2060\ufeff]/g, '')
+  .trim()
+  .toLowerCase()
+  .replace(/[\s._-]+/g, '')
 
 // DSH writes each referenced conversation into the message once as "@label"; that one
 // occurrence per listed label is a reference, not a call. Longest labels go first so

@@ -6,6 +6,7 @@ import { copyFile, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/pr
 import { join } from 'node:path'
 import { LEGACY_THEMES, MAX_EXCHANGES, ROOM_MODES, TEXT_KEPT } from './constants.js'
 import { homeLock } from './home-lock.js'
+import { nameKey } from '../shared/mentions.js'
 import { currentColor, headOf, normalize, unquote } from './text.js'
 
 export function install(rt) {
@@ -382,14 +383,23 @@ export function install(rt) {
     if (ref === undefined) return undefined
     if (state.bots[ref]) return state.bots[ref]
     const wanted = normalize(ref).replace(/^@/, '')
-    return Object.values(state.bots).find(bot => normalize(bot.name) === wanted)
+    const found = Object.values(state.bots).find(bot => normalize(bot.name) === wanted)
+    if (found !== undefined) return found
+    // A name written with other spacing or dashes resolves to the same Bot: one
+    // canonical key stands for one name, and creating the second spelling was
+    // refused, so the key match is the one meant.
+    const key = nameKey(ref)
+    return key === '' ? undefined : Object.values(state.bots).find(bot => nameKey(bot.name) === key)
   }
   // Every group chat whose id or name matches; callers refuse an ambiguous name.
   const findRooms = (ref) => {
     if (ref === undefined || ref === null) return []
     if (state.rooms[ref]) return [state.rooms[ref]]
     const wanted = normalize(unquote(ref))
-    return Object.values(state.rooms).filter(room => normalize(room.name) === wanted)
+    const named = Object.values(state.rooms).filter(room => normalize(room.name) === wanted)
+    if (named.length > 0) return named
+    const key = nameKey(ref)
+    return key === '' ? [] : Object.values(state.rooms).filter(room => nameKey(room.name) === key)
   }
   const isAdminOf = (room, id) => id !== undefined && room.admin === id
 

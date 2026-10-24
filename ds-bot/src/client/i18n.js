@@ -61,6 +61,11 @@ const ZH = {
   'The first {count} rows.': '仅显示前 {count} 行。',
   'The first part of the file.': '仅显示文件开头部分。',
   'Close preview': '关闭预览',
+  'This round: {order}': '本轮顺序：{order}',
+  'The group starts with {order}': '群聊开始，顺序：{order}',
+  ' · waiting: {names}': ' · 待命：{names}',
+  'Not called this round: {names}': '本轮未叫到：{names}',
+  'The group is in quiet mode after {limit} late rounds': '群聊在 {limit} 个迟到回合后进入安静模式',
   'New Bot': '新 Bot',
 
   // Sidebar and account menu

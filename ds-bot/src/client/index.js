@@ -604,6 +604,9 @@ export function apply(ctx) {
       }
     },
     roomProgress: roomId => call('room-progress', { roomId }).catch(() => []),
+    // A group's lifecycle events (round shape, drops, quiet notices), polled with
+    // the progress while a round runs and replayed after a restart.
+    roomEvents: (roomId, since) => call('room-events', { roomId, since }).catch(() => ({ events: [], seq: since ?? 0 })),
     earlier: (sessionId, cursor) => call('earlier', { sessionId, cursor: cursor ?? null }),
     // Hours come back in this browser's time zone, so days start at local midnight.
     usage: () => call('usage', { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }),

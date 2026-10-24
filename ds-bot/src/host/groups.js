@@ -401,6 +401,7 @@ export function install(rt) {
     const admin = rt.botOf(room.admin)
     const via = admin !== undefined ? ` @${admin.name} can pass it on, or` : ''
     appendRoom(room, { who: 'DS Bot', kind: 'notice', text: `@${names.join(' and @')} was not called: this round's per-member turn limit (${dropped[0].cap}) is reached, so the message is in the log but reaches nobody.${via} end this turn and call again in the next round.` })
+    rt.emitEvent(room.id, 'standby.dropped', { names })
     void rt.save().catch(() => {})
   }
 
@@ -635,6 +636,14 @@ export function install(rt) {
       }
       if (posts.some(post => post.resumed || post.stopped || post.done)) await rt.save()
       rt.roomProgress.set(exec.callId, round)
+      // The round's shape, for the panel and for a restart that finds it later:
+      // who speaks, in what order, and who was named but waits for a hand-off.
+      rt.emitEvent(room.id, 'round.start', {
+        callId: exec.callId,
+        ...(opener.kickoff ? { kickoff: true } : {}),
+        slots: round.slots.map(slot => ({ id: slot.id, name: slot.name, ...(slot.by ? { by: slot.by } : {}) })),
+        standby: rt.eventStandbyNames(room, round.standby),
+      })
       try {
         await runRound(room, round, exec.signal, exec.agent)
       } catch (error) {
@@ -642,6 +651,12 @@ export function install(rt) {
       } finally {
         rt.roomProgress.delete(exec.callId)
       }
+      rt.emitEvent(room.id, 'round.end', {
+        callId: exec.callId,
+        replies: round.replies.length,
+        passed: round.passed.map(bot => bot.name ?? bot.id),
+        ...(round.failed.length > 0 ? { failed: round.failed } : {}),
+      })
       if (exec.signal?.aborted) {
         for (const turn of round.started) void rt.stopRoomTurn?.(room.sessions?.[turn.botId] ?? turn.sessionId, turn.exchangeId)
       }
@@ -793,6 +808,7 @@ export function install(rt) {
     if (room.quietNoticed === true) return
     room.quietNoticed = true
     appendRoom(room, { who: 'DS Bot', kind: 'notice', text: `The group is in quiet mode: late replies after work have reached the ${ROOM_LATE_ROUNDS}-round limit, so @ names in later posts call nobody, though the messages still reach the log. The user can reset it by writing here, or the current work can finish.` })
+    rt.emitEvent(room.id, 'quiet', { limit: ROOM_LATE_ROUNDS })
     void rt.save().catch(() => {})
   }
 
@@ -814,6 +830,7 @@ export function install(rt) {
     if (quiet) noteQuiet(room)
     else room.lateRounds = (room.lateRounds ?? 0) + 1
     await rt.save()
+    rt.emitEvent(room.id, 'late-reply', { name: member.name, ...(done ? { done: true } : {}), ...(quiet ? { quiet: true } : {}) })
     await postToRoom(room, member, done ? '' : text, { late: true, ...(done ? { done: true } : {}), ...(info.askedBy ? { askedBy: info.askedBy } : {}), ...(quiet ? { quiet: true } : {}) })
       .catch(error => rt.warn('ds-bot: late group reply from %s failed: %s', member.name, error))
   }

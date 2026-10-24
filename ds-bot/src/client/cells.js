@@ -630,17 +630,25 @@ function useLiveNote(actions, sessionId, id, entry) {
 
 function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi, useWork }) {
   const [live, setLive] = useState({ replies: [], speaking: null })
+  // The round's lifecycle events (speaking order, standby, drops), folded in as
+  // they arrive: the same record a restart replays, shown where they happened.
+  const [events, setEvents] = useState([])
   useEffect(() => {
     if (done) return undefined
     let stop = false
     let timer
     let seen = ''
+    let seenSeq = 0
     const tick = async () => {
       const result = await actions.roomProgress(sessionId)
       if (stop) return
       const entry = (result ?? []).find(item => item.callId === callId) ?? (result ?? [])[0]
       const key = entry ? JSON.stringify([entry.replies, entry.speaking]) : ''
       if (entry && key !== seen) { seen = key; setLive({ replies: entry.replies ?? [], speaking: entry.speaking ?? null }) }
+      const fold = await actions.roomEvents?.(sessionId, seenSeq)
+      if (stop) return
+      const fresh = (fold?.events ?? []).filter(line => line.seq > seenSeq)
+      if (fresh.length > 0) { seenSeq = fresh.at(-1).seq; setEvents(current => [...current, ...fresh].slice(-40)) }
       timer = setTimeout(tick, document.hidden ? 5000 : 1000)
     }
     void tick()
@@ -657,6 +665,18 @@ function GroupReplies({ sessionId, callId, done, content, roster, actions, useUi
   if (replies.length === 0 && pending.length === 0) return null
   const room = roster.roomsById[sessionId]
   return h('div', { className: 'bt-group-replies' },
+    events.map(line => {
+      if (line.type === 'round.start') {
+        const order = (line.slots ?? []).map(slot => slot.name).join(' → ')
+        const standby = (line.standby ?? []).join(', ')
+        return h('div', { key: `ev-${line.seq}`, className: 'bt-event' },
+          line.kickoff === true ? t('The group starts with {order}', { order })
+            : t('This round: {order}', { order }) + (standby !== '' ? t(' · waiting: {names}', { names: standby }) : ''))
+      }
+      if (line.type === 'standby.dropped') return h('div', { key: `ev-${line.seq}`, className: 'bt-event' }, t('Not called this round: {names}', { names: (line.names ?? []).join(', ') }))
+      if (line.type === 'quiet') return h('div', { key: `ev-${line.seq}`, className: 'bt-event' }, t('The group is in quiet mode after {limit} late rounds', { limit: line.limit }))
+      return null
+    }),
     stackReplies(replies).map(({ reply, index, texts }) => {
       const bot = roster.byId[reply.botId] ?? { id: reply.botId, name: reply.name, color: reply.color ?? 'gray' }
       if (reply.kind === 'user') {
