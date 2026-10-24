@@ -208,6 +208,26 @@ button.bt-lead{border:0;background:none;padding:0;cursor:pointer}
 .bt-gfile-text{display:flex;flex-direction:column;min-width:0;flex:1}
 .bt-gfile-name{font-size:14px;line-height:22px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bt-gfile-meta{font-size:12px;line-height:15px;color:var(--bt-ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* The file panel: a file a Bot sent, shown in the chat (image, PDF, table, text). */
+.bt-file-layer{position:fixed;inset:var(--dsh-frame-chrome-top,0px) 0 0;z-index:61;display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+.bt-file{position:relative;width:min(1000px,calc(100vw - 48px));height:min(760px,calc(100vh - 2*max(32px,var(--dsh-frame-overlay-top,32px))));background:var(--bt-main);border-radius:16px;border:.5px solid var(--bt-line-2);box-shadow:0 24px 80px rgba(0,0,0,.24);display:flex;flex-direction:column;overflow:hidden;color:var(--bt-ink);animation:bt-dialog-rise ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .2s ease-out}
+.bt-file-head{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:.5px solid var(--bt-line-2);flex:none}
+.bt-file-head h2{margin:0;font-size:15px;line-height:20px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt-file-status{flex:none;font-size:12px;color:var(--bt-ink-3)}
+.bt-file-head-gap{flex:1}
+.bt-file-body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.bt-file-scroll{flex:1;min-height:0;overflow:auto;padding:12px 16px}
+.bt-file-pre{margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;line-height:20px;white-space:pre-wrap;word-break:break-word}
+.bt-file-table{border-collapse:collapse;font-size:12.5px;line-height:18px}
+.bt-file-table td{border:.5px solid var(--bt-line-2);padding:4px 8px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-file-image{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:16px;overflow:auto}
+.bt-file-image img{max-width:100%;max-height:100%;border-radius:8px}
+.bt-file-pdf{flex:1;min-height:0;width:100%;border:0;background:var(--bt-card)}
+.bt-file-note{padding:8px 16px;font-size:12px;color:var(--bt-ink-3)}
+.bt-file-actions{display:flex;gap:8px;padding:0 16px 16px}
+.bt-file-foot{flex:none;display:flex;align-items:center;gap:10px;padding:10px 16px;border-top:.5px solid var(--bt-line-2)}
+.bt-file-btn{background:var(--bt-card);color:var(--bt-ink);border:.5px solid var(--bt-line-2);border-radius:10px;padding:6px 12px;font:inherit;font-size:13px;cursor:pointer;transition:background-color .12s ease}
+.bt-file-btn:hover{background:var(--bt-hover)}
 .bt-gfile-open{flex:none;display:inline-flex;color:var(--bt-ink-3);cursor:pointer;border-radius:4px;padding:2px}
 .bt-gfile-open:hover{color:var(--bt-accent);background:var(--bt-hover)}
 .bt-gfile-open svg{width:16px;height:16px}
@@ -455,9 +475,9 @@ button.bt-q-opt:active{background:var(--bt-active)}
 .bt-scrim{position:absolute;inset:0;background:rgba(0,0,0,.32);animation:bt-fade .22s ease-out}
 body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-settings{--bt-set-w:min(1100px,calc(100vw - 48px));--bt-set-h:min(780px,calc(100vh - 2*max(32px,var(--dsh-frame-overlay-top,32px))));position:relative;width:var(--bt-set-w);height:var(--bt-set-h);background:var(--bt-main);border-radius:16px;border:.5px solid var(--bt-line-2);box-shadow:0 24px 80px rgba(0,0,0,.24);display:flex;overflow:hidden;color:var(--bt-ink);animation:bt-dialog-rise ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .2s ease-out}
-:is(.bt-settings-layer,.bt-mem-layer)[data-leaving]{pointer-events:none}
-:is(.bt-settings-layer,.bt-mem-layer)[data-leaving] .bt-scrim{opacity:0;transition:opacity .16s ease-in}
-:is(.bt-settings-layer,.bt-mem-layer)[data-leaving]>[role=dialog]{animation:bt-dialog-sink .16s cubic-bezier(.4,0,1,1) forwards}
+:is(.bt-settings-layer,.bt-mem-layer,.bt-file-layer)[data-leaving]{pointer-events:none}
+:is(.bt-settings-layer,.bt-mem-layer,.bt-file-layer)[data-leaving] .bt-scrim{opacity:0;transition:opacity .16s ease-in}
+:is(.bt-settings-layer,.bt-mem-layer,.bt-file-layer)[data-leaving]>[role=dialog]{animation:bt-dialog-sink .16s cubic-bezier(.4,0,1,1) forwards}
 @keyframes bt-dialog-rise{from{transform:translateY(12px) scale(.96)}}
 @keyframes bt-dialog-sink{to{opacity:0;transform:translateY(6px) scale(.975);filter:blur(3px)}}
 @media (prefers-reduced-motion:reduce){.bt-settings,.bt-scrim,.bt-settings-page>*{animation:bt-fade .12s ease-out!important}}

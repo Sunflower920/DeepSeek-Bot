@@ -7,6 +7,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { questionReply } from './parts.js'
 import { COLORS, EXTRA_COLORS, OPENABLE_EXTENSIONS, ROUTE } from './constants.js'
 import { openExternally } from './open-external.js'
+import { previewOf } from './file-preview.js'
 
 const LANGUAGES = { zh: 'Chinese (简体中文)', en: 'English' }
 
@@ -34,11 +35,10 @@ export function install(rt) {
   // browser opens or saves. Same read the text endpoint makes, so a read-only host
   // serves files too.
   const jsonFail = (message, code) => new Response(JSON.stringify(fail(message, code)), { status: 200, headers: { 'content-type': 'application/json' } })
-  const fileOpen = async (payload, signal) => {
-    const file = payload?.file
-    if (typeof file?.attachmentId !== 'string') return jsonFail('No file named', 'bot/invalid')
+  // A stored file's bytes, whole: the same read every file endpoint makes.
+  const readAttachment = async (file, signal) => {
     const attachments = ctx.get?.('attachments')
-    if (attachments === undefined) return jsonFail('This file cannot be read here', 'bot/unavailable')
+    if (attachments === undefined) return undefined
     const chunks = []
     let bytes = 0
     try {
@@ -48,11 +48,18 @@ export function install(rt) {
       }
     } catch (error) {
       rt.warn('ds-bot: file %s not read: %s', file?.name, error)
-      return jsonFail('This file cannot be read here', 'bot/unavailable')
+      return undefined
     }
     const data = new Uint8Array(bytes)
     let at = 0
     for (const chunk of chunks) { data.set(chunk, at); at += chunk.length }
+    return data
+  }
+  const fileOpen = async (payload, signal) => {
+    const file = payload?.file
+    if (typeof file?.attachmentId !== 'string') return jsonFail('No file named', 'bot/invalid')
+    const data = await readAttachment(file, signal)
+    if (data === undefined) return jsonFail('This file cannot be read here', 'bot/unavailable')
     const name = String(file.name ?? 'file')
     // A header is a ByteString, so the plain fallback keeps printable ASCII only; the
     // UTF-8 name rides in filename*, which every current reader takes first.
@@ -95,22 +102,8 @@ export function install(rt) {
     if (dot < 0 || !OPENABLE_EXTENSIONS.has(name.slice(dot + 1).toLowerCase())) {
       return fail(`"${name}" is not a file DS Bot can open directly. Download it instead.`, 'bot/refused')
     }
-    const attachments = ctx.get?.('attachments')
-    if (attachments === undefined) return fail('This file cannot be read here', 'bot/unavailable')
-    const chunks = []
-    let bytes = 0
-    try {
-      for await (const chunk of attachments.readFileStream(file, undefined)) {
-        chunks.push(chunk)
-        bytes += chunk.length
-      }
-    } catch (error) {
-      rt.warn('ds-bot: file %s not read: %s', file?.name, error)
-      return fail('This file cannot be read here', 'bot/unavailable')
-    }
-    const data = new Uint8Array(bytes)
-    let at = 0
-    for (const chunk of chunks) { data.set(chunk, at); at += chunk.length }
+    const data = await readAttachment(file, undefined)
+    if (data === undefined) return fail('This file cannot be read here', 'bot/unavailable')
     let target
     try {
       await mkdir(OPENED_DIR(), { recursive: true })
@@ -126,6 +119,22 @@ export function install(rt) {
     if (launch(target) === false) return fail('This file cannot be opened here', 'bot/unavailable')
     try { sweepOpened() } catch { /* best effort */ }
     return ok({ name: file.name })
+  }
+  // The file read into what a panel can show — a table's rows, a document's
+  // paragraphs — so the chat itself is enough for a look. Kinds this cannot read
+  // (an old .xls, say) are not refused silently: the panel offers the download and
+  // the app that owns the file instead.
+  const filePreview = async payload => {
+    const file = payload?.file
+    if (typeof file?.attachmentId !== 'string') return fail('No file named', 'bot/invalid')
+    const data = await readAttachment(file, undefined)
+    if (data === undefined) return fail('This file cannot be read here', 'bot/unavailable')
+    const name = String(file.name ?? '')
+    const dot = name.lastIndexOf('.')
+    const shown = previewOf(Buffer.from(data.buffer, data.byteOffset, data.byteLength), dot < 0 ? '' : name.slice(dot + 1).toLowerCase())
+    if (shown === null) return fail(`"${name}" cannot be shown here. Download it, or open it with the app that owns it.`, 'bot/refused')
+    if (shown.kind === 'too-large') return fail('This file is too large to show here. Download it, or open it with the app that owns it.', 'bot/refused')
+    return ok({ name, ...shown })
   }
   // Models come from DSH, not state.json, so a provider added in Harness settings
   // changes the view without a new revision.
@@ -182,7 +191,7 @@ export function install(rt) {
   })
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['state', 'models', 'efforts', 'earlier', 'room-progress', 'exchange', 'exchange-text', 'file-text', 'file-launch', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer'])
+  const READS = new Set(['state', 'models', 'efforts', 'earlier', 'room-progress', 'exchange', 'exchange-text', 'file-text', 'file-launch', 'file-preview', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer'])
 
   function setPrefs(body) {
     if (body.theme !== undefined) {
@@ -248,6 +257,9 @@ export function install(rt) {
         // A group chat's file chip (send_file), opened with the app that owns it.
         case 'file-launch':
           return await fileLaunch(body)
+        // The same file, read into what the preview panel shows.
+        case 'file-preview':
+          return await filePreview(body)
         case 'earlier':
           await rt.load()
           return ok(await rt.earlierPage(String(body.sessionId ?? ''), body.cursor ?? undefined))

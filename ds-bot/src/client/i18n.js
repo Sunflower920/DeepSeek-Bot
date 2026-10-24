@@ -53,6 +53,13 @@ const ZH = {
   "Open {name}'s chat": '打开 {name} 的对话',
   'Open {name}': '打开 {name}',
   'Download {name}': '下载 {name}',
+  'Preview of {name}': '预览 {name}',
+  'Open it with its app': '用本机应用打开',
+  'Showing the file inside DSH.': '正在 DSH 里显示这个文件。',
+  '{name} cannot be shown here.': '{name} 无法在这里显示。',
+  'The first {count} rows.': '仅显示前 {count} 行。',
+  'The first part of the file.': '仅显示文件开头部分。',
+  'Close preview': '关闭预览',
   'New Bot': '新 Bot',
 
   // Sidebar and account menu

@@ -48,7 +48,7 @@ export function apply(ctx) {
   let seenAt = seenStore.read()
   // `details` is the panel's subject (a Session id); `view` picks details or the
   // subject Bot's browser inside it.
-  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {} })
+  const ui = createSource({ details: null, view: 'details', renaming: false, tab: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, file: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {} })
   // Bot mode paints the whole team surface; Agent mode withdraws every slot and
   // style so the shell's own interface returns. `plain` stays false until a Bot-mode
   // view hosts a plain session, which drops only the conversation replacements.
@@ -548,6 +548,16 @@ export function apply(ctx) {
     exchange: (a, b) => call('exchange', { a, b }).catch(() => []),
     exchangeText: id => call('exchange-text', { id }).catch(() => undefined),
     fileText: file => call('file-text', { file }).catch(() => undefined),
+    // A group chat's file chip (send_file): the panel shows the file in the chat
+    // itself — an image, a PDF, a table's rows, a document's text. The host reads
+    // the Office kinds; the browser renders the rest from the bytes.
+    previewFile: file => ui.set(state => ({ ...state, file })),
+    closeFile: () => ui.set(state => (state.file ? { ...state, file: null } : state)),
+    filePreview: file => call('file-preview', { file }),
+    fileBytes: async file => {
+      const response = await callFile('file-open', { file })
+      return await response.blob()
+    },
     // A group chat's file chip (send_file): the host stages the bytes and opens the
     // file with the app that owns it, on the machine the host runs on.
     openFile: async (file) => {

@@ -8,6 +8,7 @@ import { createRuntime } from '../index.js'
 import { resolveSendFile } from '../src/host/tools.js'
 import { GROUP_FILE_MAX } from '../src/host/constants.js'
 import { fakeAttachments, fakeContext } from './fake-ctx.js'
+import { zipFixture } from './fake-zip.js'
 
 // send_file: a Bot puts a file from the group's working folder into the group chat,
 // where the user opens it. The bytes go to the attachment store once and the group's
@@ -226,6 +227,34 @@ test('file-launch refuses kinds it must not run, and names no app', async (t) =>
   assert.equal(noName.error.code, 'bot/refused', 'a nameless file has no openable extension either')
   const invalid = await call('file-launch', { file: { name: 'a.txt' } })
   assert.equal(invalid.error.code, 'bot/invalid')
+})
+
+test('file-preview reads a document and a table into what a panel can show', async (t) => {
+  const { call, stop, rt } = start()
+  t.after(stop)
+  const store = fakeAttachments()
+  rt.ctx.get = name => (name === 'attachments' ? store : undefined)
+  const doc = await store.saveFile({ data: zipFixture({ 'word/document.xml': '<w:document><w:body><w:p><w:t>Hello</w:t></w:p></w:body></w:document>' }), name: '报告.docx' })
+  const shown = await call('file-preview', { file: doc })
+  assert.equal(shown.ok, true)
+  assert.equal(shown.value.kind, 'text')
+  assert.equal(shown.value.text, 'Hello')
+  const table = await store.saveFile({ data: zipFixture({
+    'xl/workbook.xml': '<workbook><sheets><sheet name="数据" sheetId="1" r:id="rId1"/></sheets></workbook>',
+    'xl/_rels/workbook.xml.rels': '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>',
+    'xl/sharedStrings.xml': '<sst><si><t>名称</t></si></sst>',
+    'xl/worksheets/sheet1.xml': '<worksheet><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c></row></sheetData></worksheet>',
+  }), name: '底稿.xlsx' })
+  const grid = await call('file-preview', { file: table })
+  assert.equal(grid.value.kind, 'table')
+  assert.equal(grid.value.sheet, '数据')
+  assert.deepEqual(grid.value.rows, [['名称']])
+  // Kinds the panel cannot render are refused with the two ways left, not silently.
+  const old = await store.saveFile({ data: new TextEncoder().encode('legacy bytes'), name: '老表.xls' })
+  const refused = await call('file-preview', { file: old })
+  assert.equal(refused.ok, false)
+  assert.match(refused.error.message, /download it, or open it with the app/i)
+  assert.equal((await call('file-preview', {})).error.code, 'bot/invalid')
 })
 
 test('resolveSendFile reads a path the way the group folder names one', async () => {

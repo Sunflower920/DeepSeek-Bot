@@ -8,6 +8,7 @@ import { SettingsDialog } from './settings.js'
 import { ContextMenu } from './context-menu.js'
 import { PANEL_LINGER_MS, BotPanel } from './browser-pane.js'
 import { MemoryDialog } from './memory-panel.js'
+import { FileDialog } from './file-dialog.js'
 import { useLinger } from './motion.js'
 
 // How long a closing dialog or menu stays for its exit (see their [data-leaving] CSS).
@@ -38,6 +39,7 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
   const [settings, settingsLeaving] = useLinger(ui.settings, DIALOG_EXIT_MS)
   const [memory, memoryLeaving] = useLinger(ui.memory && roster.byId[ui.memory] ? ui.memory : null, DIALOG_EXIT_MS)
   const [menu, menuLeaving] = useLinger(ui.menu, MENU_EXIT_MS)
+  const [file, fileLeaving] = useLinger(ui.file, DIALOG_EXIT_MS)
   return h(Fragment, null,
     pane ? createPortal(h(BotPanel, { pane, leaving: open === null, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages }), document.body) : null,
     ui.newChat ? createPortal(h(NewChat, { key: ui.newChat, mode: ui.newChat, roster, actions }), document.body) : null,
@@ -46,5 +48,6 @@ export function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useA
     ui.voice ? createPortal(h(VoiceMode, { key: ui.voice, sessionId: ui.voice, roster, actions, useSessions, useSessionStatus }), document.body) : null,
     menu ? createPortal(h(ContextMenu, { key: `${menu.kind ?? ''}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, leaving: menuLeaving }), document.body) : null,
     settings ? createPortal(h(SettingsDialog, { page: settings.page, id: settings.id, roster, actions, useUpdate, leaving: settingsLeaving }), document.body) : null,
-    memory && roster.byId[memory] ? createPortal(h(MemoryDialog, { key: memory, bot: roster.byId[memory], actions, leaving: memoryLeaving }), document.body) : null)
+    memory && roster.byId[memory] ? createPortal(h(MemoryDialog, { key: memory, bot: roster.byId[memory], actions, leaving: memoryLeaving }), document.body) : null,
+    file ? createPortal(h(FileDialog, { key: file.attachmentId ?? file.name, file, actions, leaving: fileLeaving }), document.body) : null)
 }

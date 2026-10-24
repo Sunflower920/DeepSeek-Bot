@@ -90,6 +90,13 @@ var ZH = {
   "Open {name}'s chat": "打开 {name} 的对话",
   "Open {name}": "打开 {name}",
   "Download {name}": "下载 {name}",
+  "Preview of {name}": "预览 {name}",
+  "Open it with its app": "用本机应用打开",
+  "Showing the file inside DSH.": "正在 DSH 里显示这个文件。",
+  "{name} cannot be shown here.": "{name} 无法在这里显示。",
+  "The first {count} rows.": "仅显示前 {count} 行。",
+  "The first part of the file.": "仅显示文件开头部分。",
+  "Close preview": "关闭预览",
   "New Bot": "新 Bot",
   // Sidebar and account menu
   "Bot list": "Bot 列表",
@@ -1239,8 +1246,8 @@ function bodyOf(def, paint, flat = false) {
     return "";
   }
 }
-var eyeMarkup = ([cx, cy, w, h36, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><rect class="bt-eye" x="${-w / 2}" y="${-h36 / 2}" width="${w}" height="${h36}" rx="${w / 2}"/></g>`;
-var happyEyeMarkup = ([cx, cy, w, h36, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * 0.62} ${h36 * 0.14}Q0 ${-h36 * 0.42} ${w * 0.62} ${h36 * 0.14}" fill="none" stroke="#000" stroke-width="${w * 0.5}" stroke-linecap="round"/></g>`;
+var eyeMarkup = ([cx, cy, w, h37, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><rect class="bt-eye" x="${-w / 2}" y="${-h37 / 2}" width="${w}" height="${h37}" rx="${w / 2}"/></g>`;
+var happyEyeMarkup = ([cx, cy, w, h37, tilt]) => `<g transform="translate(${cx} ${cy}) rotate(${tilt})"><path class="bt-eye-happy" opacity="0" d="M${-w * 0.62} ${h37 * 0.14}Q0 ${-h37 * 0.42} ${w * 0.62} ${h37 * 0.14}" fill="none" stroke="#000" stroke-width="${w * 0.5}" stroke-linecap="round"/></g>`;
 var maskBox = (size) => `maskUnits="userSpaceOnUse" x="${-size}" y="${-size}" width="${size * 3}" height="${size * 3}"`;
 var holes = (def, eyes) => `<rect x="${-def.size}" y="${-def.size}" width="${def.size * 3}" height="${def.size * 3}" fill="#fff"/>${eyes}`;
 var MASK_ID = "%MASK%";
@@ -1701,12 +1708,12 @@ function liveSprings(apply2) {
     const dt = Math.min(0.5, Math.max(1e-3, (now - last) / 1e3));
     last = now;
     const steps = Math.ceil(dt * 240);
-    const h36 = dt / steps;
+    const h37 = dt / steps;
     let moving = false;
     for (const value of values.values()) {
       for (let index = 0; index < steps; index += 1) {
-        value.v += (-value.k * (value.x - value.to) - value.c * value.v) * h36;
-        value.x += value.v * h36;
+        value.v += (-value.k * (value.x - value.to) - value.c * value.v) * h37;
+        value.x += value.v * h37;
       }
       if (Math.abs(value.x - value.to) < 0.05 && Math.abs(value.v) < 1) {
         value.x = value.to;
@@ -2068,6 +2075,26 @@ button.bt-lead{border:0;background:none;padding:0;cursor:pointer}
 .bt-gfile-text{display:flex;flex-direction:column;min-width:0;flex:1}
 .bt-gfile-name{font-size:14px;line-height:22px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bt-gfile-meta{font-size:12px;line-height:15px;color:var(--bt-ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* The file panel: a file a Bot sent, shown in the chat (image, PDF, table, text). */
+.bt-file-layer{position:fixed;inset:var(--dsh-frame-chrome-top,0px) 0 0;z-index:61;display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+.bt-file{position:relative;width:min(1000px,calc(100vw - 48px));height:min(760px,calc(100vh - 2*max(32px,var(--dsh-frame-overlay-top,32px))));background:var(--bt-main);border-radius:16px;border:.5px solid var(--bt-line-2);box-shadow:0 24px 80px rgba(0,0,0,.24);display:flex;flex-direction:column;overflow:hidden;color:var(--bt-ink);animation:bt-dialog-rise ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .2s ease-out}
+.bt-file-head{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:.5px solid var(--bt-line-2);flex:none}
+.bt-file-head h2{margin:0;font-size:15px;line-height:20px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bt-file-status{flex:none;font-size:12px;color:var(--bt-ink-3)}
+.bt-file-head-gap{flex:1}
+.bt-file-body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.bt-file-scroll{flex:1;min-height:0;overflow:auto;padding:12px 16px}
+.bt-file-pre{margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;line-height:20px;white-space:pre-wrap;word-break:break-word}
+.bt-file-table{border-collapse:collapse;font-size:12.5px;line-height:18px}
+.bt-file-table td{border:.5px solid var(--bt-line-2);padding:4px 8px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bt-file-image{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:16px;overflow:auto}
+.bt-file-image img{max-width:100%;max-height:100%;border-radius:8px}
+.bt-file-pdf{flex:1;min-height:0;width:100%;border:0;background:var(--bt-card)}
+.bt-file-note{padding:8px 16px;font-size:12px;color:var(--bt-ink-3)}
+.bt-file-actions{display:flex;gap:8px;padding:0 16px 16px}
+.bt-file-foot{flex:none;display:flex;align-items:center;gap:10px;padding:10px 16px;border-top:.5px solid var(--bt-line-2)}
+.bt-file-btn{background:var(--bt-card);color:var(--bt-ink);border:.5px solid var(--bt-line-2);border-radius:10px;padding:6px 12px;font:inherit;font-size:13px;cursor:pointer;transition:background-color .12s ease}
+.bt-file-btn:hover{background:var(--bt-hover)}
 .bt-gfile-open{flex:none;display:inline-flex;color:var(--bt-ink-3);cursor:pointer;border-radius:4px;padding:2px}
 .bt-gfile-open:hover{color:var(--bt-accent);background:var(--bt-hover)}
 .bt-gfile-open svg{width:16px;height:16px}
@@ -2315,9 +2342,9 @@ button.bt-q-opt:active{background:var(--bt-active)}
 .bt-scrim{position:absolute;inset:0;background:rgba(0,0,0,.32);animation:bt-fade .22s ease-out}
 body[data-ds-dark-theme] .bt-scrim{background:rgba(0,0,0,.5)}
 .bt-settings{--bt-set-w:min(1100px,calc(100vw - 48px));--bt-set-h:min(780px,calc(100vh - 2*max(32px,var(--dsh-frame-overlay-top,32px))));position:relative;width:var(--bt-set-w);height:var(--bt-set-h);background:var(--bt-main);border-radius:16px;border:.5px solid var(--bt-line-2);box-shadow:0 24px 80px rgba(0,0,0,.24);display:flex;overflow:hidden;color:var(--bt-ink);animation:bt-dialog-rise ${SPRING_SHAPE.duration}ms ${SPRING_SHAPE.easing},bt-veil-in .2s ease-out}
-:is(.bt-settings-layer,.bt-mem-layer)[data-leaving]{pointer-events:none}
-:is(.bt-settings-layer,.bt-mem-layer)[data-leaving] .bt-scrim{opacity:0;transition:opacity .16s ease-in}
-:is(.bt-settings-layer,.bt-mem-layer)[data-leaving]>[role=dialog]{animation:bt-dialog-sink .16s cubic-bezier(.4,0,1,1) forwards}
+:is(.bt-settings-layer,.bt-mem-layer,.bt-file-layer)[data-leaving]{pointer-events:none}
+:is(.bt-settings-layer,.bt-mem-layer,.bt-file-layer)[data-leaving] .bt-scrim{opacity:0;transition:opacity .16s ease-in}
+:is(.bt-settings-layer,.bt-mem-layer,.bt-file-layer)[data-leaving]>[role=dialog]{animation:bt-dialog-sink .16s cubic-bezier(.4,0,1,1) forwards}
 @keyframes bt-dialog-rise{from{transform:translateY(12px) scale(.96)}}
 @keyframes bt-dialog-sink{to{opacity:0;transform:translateY(6px) scale(.975);filter:blur(3px)}}
 @media (prefers-reduced-motion:reduce){.bt-settings,.bt-scrim,.bt-settings-page>*{animation:bt-fade .12s ease-out!important}}
@@ -4198,7 +4225,7 @@ function GroupFiles({ files, actions }) {
     const meta = [ui.fileExtension?.(file.name)?.toUpperCase().slice(0, 8), ui.fileSizeText?.(file.bytes)].filter(Boolean).join(" · ");
     return (0, import_react7.createElement)(
       "button",
-      { key: index, type: "button", className: "bt-gfile", title: file.name, "aria-label": t("Open {name}", { name: file.name }), onClick: () => actions.openFile(file) },
+      { key: index, type: "button", className: "bt-gfile", title: file.name, "aria-label": t("Open {name}", { name: file.name }), onClick: () => actions.previewFile(file) },
       ui.FileTypeIcon ? (0, import_react7.createElement)(ui.FileTypeIcon, { path: file.name, className: "bt-gfile-icon" }) : null,
       (0, import_react7.createElement)(
         "span",
@@ -12562,8 +12589,145 @@ var BROWSER_CSS = `
 @media (prefers-reduced-motion:reduce){.bt-ptabs,.bt-panel-view,.bt-bcard,.bt-ptab-name{animation:none}}
 `;
 
-// src/client/overlays.js
+// src/client/file-dialog.js
 var import_react35 = require("react");
+var IMAGES = /* @__PURE__ */ new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg"]);
+var TEXTS = /* @__PURE__ */ new Set(["txt", "md", "csv", "log", "json", "xml", "yaml", "yml", "ini", "tsv"]);
+var OFFICE = /* @__PURE__ */ new Set(["docx", "xlsx"]);
+var INLINE_MAX = 32 * 1024 * 1024;
+var MIME = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  bmp: "image/bmp",
+  ico: "image/x-icon",
+  svg: "image/svg+xml",
+  pdf: "application/pdf"
+};
+function extensionOf(name) {
+  const dot = String(name ?? "").lastIndexOf(".");
+  return dot < 0 ? "" : String(name).slice(dot + 1).toLowerCase();
+}
+function kindOf(name, bytes) {
+  const extension = extensionOf(name);
+  if (IMAGES.has(extension)) return bytes !== void 0 && bytes > INLINE_MAX ? null : "image";
+  if (extension === "pdf") return bytes !== void 0 && bytes > INLINE_MAX ? null : "pdf";
+  if (TEXTS.has(extension)) return "text";
+  if (OFFICE.has(extension)) return "office";
+  return null;
+}
+function FileDialog({ file, actions, leaving = false }) {
+  const [state, setState] = (0, import_react35.useState)({ phase: "loading" });
+  const [url, setUrl] = (0, import_react35.useState)(null);
+  const close = (0, import_react35.useCallback)(() => actions.closeFile(), []);
+  useEscape(close);
+  const shown = (0, import_react35.useRef)(null);
+  (0, import_react35.useEffect)(() => () => {
+    if (url) URL.revokeObjectURL(url);
+  }, [url]);
+  (0, import_react35.useEffect)(() => {
+    if (shown.current === file?.attachmentId) return;
+    shown.current = file?.attachmentId;
+    let stopped = false;
+    const load = async () => {
+      const kind = kindOf(file?.name, file?.bytes);
+      try {
+        if (kind === null) {
+          setState({ phase: "unsupported" });
+          return;
+        }
+        if (kind === "office") {
+          const value = await actions.filePreview(file);
+          if (stopped) return;
+          setState({ phase: "ready", kind: value.kind, ...value });
+          return;
+        }
+        const blob = await actions.fileBytes(file);
+        if (stopped) return;
+        if (kind === "text") {
+          const text = await blob.text();
+          setState({ phase: "ready", kind: "text", text });
+          return;
+        }
+        const objectUrl = URL.createObjectURL(new Blob([await blob.arrayBuffer()], { type: MIME[extensionOf(file?.name)] ?? "application/octet-stream" }));
+        setUrl(objectUrl);
+        setState({ phase: "ready", kind });
+      } catch (error) {
+        if (!stopped) setState({ phase: "failed", error: error?.message ?? String(error) });
+      }
+    };
+    void load();
+    return () => {
+      stopped = true;
+    };
+  }, [file]);
+  const name = String(file?.name ?? "");
+  const openOutside = () => actions.openFile(file);
+  const save = () => actions.downloadFile(file);
+  const truncated = state.truncated === true;
+  return (0, import_react35.createElement)(
+    "div",
+    { className: "bt-file-layer", "data-leaving": leaving || void 0 },
+    (0, import_react35.createElement)("div", { className: "bt-scrim bt-file-scrim", onMouseDown: close }),
+    (0, import_react35.createElement)(
+      "div",
+      { className: "bt-file", role: "dialog", "aria-modal": true, "aria-label": t("Preview of {name}", { name }) },
+      (0, import_react35.createElement)(
+        "div",
+        { className: "bt-file-head" },
+        (0, import_react35.createElement)("h2", null, name),
+        (0, import_react35.createElement)("span", { className: "bt-file-status" }, state.kind === "table" && state.sheet ? state.sheet : ""),
+        (0, import_react35.createElement)("span", { className: "bt-file-head-gap" }),
+        (0, import_react35.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": t("Download {name}", { name }), title: t("Download"), onClick: save }, (0, import_react35.createElement)(DownloadIcon)),
+        (0, import_react35.createElement)("button", { type: "button", className: "bt-icon-btn", "aria-label": t("Close preview"), title: t("Close"), onClick: close }, (0, import_react35.createElement)(CloseIcon))
+      ),
+      (0, import_react35.createElement)(
+        "div",
+        { className: "bt-file-body" },
+        state.phase === "loading" ? (0, import_react35.createElement)("div", { className: "bt-file-note" }, t("Loading…")) : state.phase === "failed" ? (0, import_react35.createElement)("div", { className: "bt-error", role: "alert" }, hostText(state.error)) : state.phase === "unsupported" ? (0, import_react35.createElement)(
+          import_react35.Fragment,
+          null,
+          (0, import_react35.createElement)("div", { className: "bt-file-note" }, t("{name} cannot be shown here.", { name })),
+          (0, import_react35.createElement)(
+            "div",
+            { className: "bt-file-actions" },
+            (0, import_react35.createElement)("button", { type: "button", className: "bt-file-btn", onClick: openOutside }, t("Open it with its app")),
+            (0, import_react35.createElement)("button", { type: "button", className: "bt-file-btn", onClick: save }, t("Download"))
+          )
+        ) : state.kind === "image" ? (0, import_react35.createElement)("div", { className: "bt-file-image" }, (0, import_react35.createElement)("img", { src: url, alt: name })) : state.kind === "pdf" ? (0, import_react35.createElement)("iframe", { className: "bt-file-pdf", src: url, title: name }) : state.kind === "table" ? (0, import_react35.createElement)(
+          import_react35.Fragment,
+          null,
+          (0, import_react35.createElement)(
+            "div",
+            { className: "bt-file-scroll" },
+            (0, import_react35.createElement)(
+              "table",
+              { className: "bt-file-table" },
+              (0, import_react35.createElement)("tbody", null, (state.rows ?? []).map((row, index) => (0, import_react35.createElement)("tr", { key: index }, row.map((cell, at) => (0, import_react35.createElement)("td", { key: at }, cell)))))
+            )
+          ),
+          truncated ? (0, import_react35.createElement)("div", { className: "bt-file-note" }, t("The first {count} rows.", { count: state.rows?.length ?? 0 })) : null
+        ) : (0, import_react35.createElement)(
+          import_react35.Fragment,
+          null,
+          (0, import_react35.createElement)("div", { className: "bt-file-scroll" }, (0, import_react35.createElement)("pre", { className: "bt-file-pre" }, state.text ?? "")),
+          truncated ? (0, import_react35.createElement)("div", { className: "bt-file-note" }, t("The first part of the file.")) : null
+        )
+      ),
+      (0, import_react35.createElement)(
+        "div",
+        { className: "bt-file-foot" },
+        (0, import_react35.createElement)("span", { className: "bt-file-note" }, t("Showing the file inside DSH.")),
+        (0, import_react35.createElement)("button", { type: "button", className: "bt-file-btn", onClick: openOutside }, t("Open it with its app"))
+      )
+    )
+  );
+}
+
+// src/client/overlays.js
+var import_react36 = require("react");
 var import_react_dom9 = require("react-dom");
 var DIALOG_EXIT_MS = 160;
 var MENU_EXIT_MS3 = 120;
@@ -12572,15 +12736,15 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
   const ui3 = useUi((value) => value);
   useRegistry((value) => value);
   const current = useSessions((list) => Object.values(list.byId).find((session) => (session?.retainedBy?.mainView ?? 0) > 0)?.id ?? null);
-  const previous = (0, import_react35.useRef)(current);
-  (0, import_react35.useEffect)(() => {
+  const previous = (0, import_react36.useRef)(current);
+  (0, import_react36.useEffect)(() => {
     if (previous.current === current) return;
     previous.current = current;
     if (current) actions.followPanel?.(current);
   }, [current]);
   const open = ui3.details ? { id: ui3.details, view: ui3.view ?? "details", renaming: ui3.renaming, tab: ui3.tab } : null;
-  const [kept, setKept] = (0, import_react35.useState)(open);
-  (0, import_react35.useEffect)(() => {
+  const [kept, setKept] = (0, import_react36.useState)(open);
+  (0, import_react36.useEffect)(() => {
     if (open) {
       setKept(open);
       return void 0;
@@ -12592,17 +12756,19 @@ function Overlays({ useRoster, useUi, useSessions, useSessionStatus, useActivity
   const [settings, settingsLeaving] = useLinger(ui3.settings, DIALOG_EXIT_MS);
   const [memory, memoryLeaving] = useLinger(ui3.memory && roster.byId[ui3.memory] ? ui3.memory : null, DIALOG_EXIT_MS);
   const [menu, menuLeaving] = useLinger(ui3.menu, MENU_EXIT_MS3);
-  return (0, import_react35.createElement)(
-    import_react35.Fragment,
+  const [file, fileLeaving] = useLinger(ui3.file, DIALOG_EXIT_MS);
+  return (0, import_react36.createElement)(
+    import_react36.Fragment,
     null,
-    pane ? (0, import_react_dom9.createPortal)((0, import_react35.createElement)(BotPanel, { pane, leaving: open === null, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages }), document.body) : null,
-    ui3.newChat ? (0, import_react_dom9.createPortal)((0, import_react35.createElement)(NewChat, { key: ui3.newChat, mode: ui3.newChat, roster, actions }), document.body) : null,
-    ui3.palette ? (0, import_react_dom9.createPortal)((0, import_react35.createElement)(CommandPalette, { key: ui3.palette.token, start: ui3.palette.query, token: ui3.palette.token, roster, actions, useSessions }), document.body) : null,
-    ui3.exchange ? (0, import_react_dom9.createPortal)((0, import_react35.createElement)(ExchangeDialog, { pair: ui3.exchange, roster, actions }), document.body) : null,
-    ui3.voice ? (0, import_react_dom9.createPortal)((0, import_react35.createElement)(VoiceMode, { key: ui3.voice, sessionId: ui3.voice, roster, actions, useSessions, useSessionStatus }), document.body) : null,
-    menu ? (0, import_react_dom9.createPortal)((0, import_react35.createElement)(ContextMenu, { key: `${menu.kind ?? ""}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, leaving: menuLeaving }), document.body) : null,
-    settings ? (0, import_react_dom9.createPortal)((0, import_react35.createElement)(SettingsDialog, { page: settings.page, id: settings.id, roster, actions, useUpdate, leaving: settingsLeaving }), document.body) : null,
-    memory && roster.byId[memory] ? (0, import_react_dom9.createPortal)((0, import_react35.createElement)(MemoryDialog, { key: memory, bot: roster.byId[memory], actions, leaving: memoryLeaving }), document.body) : null
+    pane ? (0, import_react_dom9.createPortal)((0, import_react36.createElement)(BotPanel, { pane, leaving: open === null, roster, actions, useSessions, useSessionStatus, useActivity, useWork, useBrowserTabs, useBrowserPages }), document.body) : null,
+    ui3.newChat ? (0, import_react_dom9.createPortal)((0, import_react36.createElement)(NewChat, { key: ui3.newChat, mode: ui3.newChat, roster, actions }), document.body) : null,
+    ui3.palette ? (0, import_react_dom9.createPortal)((0, import_react36.createElement)(CommandPalette, { key: ui3.palette.token, start: ui3.palette.query, token: ui3.palette.token, roster, actions, useSessions }), document.body) : null,
+    ui3.exchange ? (0, import_react_dom9.createPortal)((0, import_react36.createElement)(ExchangeDialog, { pair: ui3.exchange, roster, actions }), document.body) : null,
+    ui3.voice ? (0, import_react_dom9.createPortal)((0, import_react36.createElement)(VoiceMode, { key: ui3.voice, sessionId: ui3.voice, roster, actions, useSessions, useSessionStatus }), document.body) : null,
+    menu ? (0, import_react_dom9.createPortal)((0, import_react36.createElement)(ContextMenu, { key: `${menu.kind ?? ""}:${menu.id}:${menu.x}:${menu.y}`, menu, roster, actions, leaving: menuLeaving }), document.body) : null,
+    settings ? (0, import_react_dom9.createPortal)((0, import_react36.createElement)(SettingsDialog, { page: settings.page, id: settings.id, roster, actions, useUpdate, leaving: settingsLeaving }), document.body) : null,
+    memory && roster.byId[memory] ? (0, import_react_dom9.createPortal)((0, import_react36.createElement)(MemoryDialog, { key: memory, bot: roster.byId[memory], actions, leaving: memoryLeaving }), document.body) : null,
+    file ? (0, import_react_dom9.createPortal)((0, import_react36.createElement)(FileDialog, { key: file.attachmentId ?? file.name, file, actions, leaving: fileLeaving }), document.body) : null
   );
 }
 
@@ -13493,7 +13659,7 @@ function writeMode(mode, storage = globalThis.localStorage) {
 }
 
 // src/client/user-message.js
-var import_react36 = require("react");
+var import_react37 = require("react");
 var ui2 = __toESM(require("@deepseek-ai/dsh-client-ui-primitives"), 1);
 var canDrawUserMessages = () => typeof ui2.projectUserText === "function";
 function contentParts(content) {
@@ -13525,38 +13691,38 @@ function userTextParts(text, bots, referenceLabels = []) {
   return parts;
 }
 function UserText({ text, bots, referenceLabels, skillNames, references, actions }) {
-  return userTextParts(text, bots, referenceLabels).map((part, index) => part.bot ? (0, import_react36.createElement)(
+  return userTextParts(text, bots, referenceLabels).map((part, index) => part.bot ? (0, import_react37.createElement)(
     "button",
     { key: index, type: "button", className: "bt-umention", title: `@${part.bot.name}`, onClick: () => actions.openSession(part.bot.id) },
-    (0, import_react36.createElement)(BotMark, { bot: part.bot, size: 16 }),
+    (0, import_react37.createElement)(BotMark, { bot: part.bot, size: 16 }),
     part.label
-  ) : (0, import_react36.createElement)(import_react36.Fragment, { key: index }, ui2.projectUserText(part.text, referenceLabels, skillNames, "skill", references)));
+  ) : (0, import_react37.createElement)(import_react37.Fragment, { key: index }, ui2.projectUserText(part.text, referenceLabels, skillNames, "skill", references)));
 }
 function Attachments({ attachments, renderMessageImages }) {
   const compact2 = attachments.length > 1;
-  return (0, import_react36.createElement)("div", { className: "bt-uattach" }, attachments.map((block, index) => {
+  return (0, import_react37.createElement)("div", { className: "bt-uattach" }, attachments.map((block, index) => {
     if (block.type === "image") {
-      return renderMessageImages ? (0, import_react36.createElement)(import_react36.Fragment, { key: index }, renderMessageImages({ images: [{ attachment: block.attachment }], align: "end", compact: compact2 })) : null;
+      return renderMessageImages ? (0, import_react37.createElement)(import_react37.Fragment, { key: index }, renderMessageImages({ images: [{ attachment: block.attachment }], align: "end", compact: compact2 })) : null;
     }
     const file = block.attachment;
     const meta = [ui2.fileExtension?.(file.name)?.toUpperCase().slice(0, 8), ui2.fileSizeText?.(file.bytes)].filter(Boolean).join(" · ");
-    return (0, import_react36.createElement)(
+    return (0, import_react37.createElement)(
       "span",
       { key: index, className: "bt-ufile", title: file.name },
-      ui2.FileTypeIcon ? (0, import_react36.createElement)(ui2.FileTypeIcon, { path: file.name, className: "bt-ufile-icon" }) : null,
-      (0, import_react36.createElement)("span", { className: "bt-ufile-text" }, (0, import_react36.createElement)("span", { className: "bt-ufile-name" }, file.name), meta ? (0, import_react36.createElement)("span", { className: "bt-ufile-meta" }, meta) : null)
+      ui2.FileTypeIcon ? (0, import_react37.createElement)(ui2.FileTypeIcon, { path: file.name, className: "bt-ufile-icon" }) : null,
+      (0, import_react37.createElement)("span", { className: "bt-ufile-text" }, (0, import_react37.createElement)("span", { className: "bt-ufile-name" }, file.name), meta ? (0, import_react37.createElement)("span", { className: "bt-ufile-meta" }, meta) : null)
     );
   }));
 }
 function CopyButton({ text }) {
-  const [copied, setCopied] = (0, import_react36.useState)(false);
+  const [copied, setCopied] = (0, import_react37.useState)(false);
   const copy2 = () => {
     void navigator.clipboard?.writeText(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1e3);
     });
   };
-  return (0, import_react36.createElement)("button", { type: "button", className: "bt-tool", "aria-label": copied ? t("Copied") : t("Copy"), title: copied ? t("Copied") : t("Copy"), onClick: copy2 }, copied ? (0, import_react36.createElement)(CheckIcon) : (0, import_react36.createElement)(CopyIcon));
+  return (0, import_react37.createElement)("button", { type: "button", className: "bt-tool", "aria-label": copied ? t("Copied") : t("Copy"), title: copied ? t("Copied") : t("Copy"), onClick: copy2 }, copied ? (0, import_react37.createElement)(CheckIcon) : (0, import_react37.createElement)(CopyIcon));
 }
 var clock3 = (time) => typeof time === "number" ? new Date(time).toLocaleTimeString(dateLocale(), { hour: "numeric", minute: "2-digit" }) : void 0;
 function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageImages, openFile, openSkill }) {
@@ -13567,24 +13733,24 @@ function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageIma
   const references = openFile && openSkill ? { openFile, openSkill } : void 0;
   const steering = node.kind === "steering";
   const { shown, folded, control } = useFold(text, { markdown: false });
-  const body = (0, import_react36.createElement)(UserText, { text: shown, bots: mentionableBots(roster, sessionId), referenceLabels, skillNames: data.skillNames ?? [], references, actions });
-  return (0, import_react36.createElement)(
+  const body = (0, import_react37.createElement)(UserText, { text: shown, bots: mentionableBots(roster, sessionId), referenceLabels, skillNames: data.skillNames ?? [], references, actions });
+  return (0, import_react37.createElement)(
     "div",
     { className: "bt-umsg", "data-steering": steering || void 0 },
-    (0, import_react36.createElement)(
+    (0, import_react37.createElement)(
       "div",
       { className: "bt-ustack" },
-      attachments.length > 0 ? (0, import_react36.createElement)(Attachments, { attachments, renderMessageImages }) : null,
-      text !== "" || rest.length > 0 ? (0, import_react36.createElement)(
+      attachments.length > 0 ? (0, import_react37.createElement)(Attachments, { attachments, renderMessageImages }) : null,
+      text !== "" || rest.length > 0 ? (0, import_react37.createElement)(
         "div",
         { className: "bt-ubody", title: clock3(data.time), "data-folded": folded || void 0 },
-        control ? (0, import_react36.createElement)("div", { className: "bt-fold-body" }, body) : body,
+        control ? (0, import_react37.createElement)("div", { className: "bt-fold-body" }, body) : body,
         control,
-        rest.map((block, index) => ui2.JsonBlock ? (0, import_react36.createElement)(ui2.JsonBlock, { key: index, label: t("Content"), payload: block }) : null)
+        rest.map((block, index) => ui2.JsonBlock ? (0, import_react37.createElement)(ui2.JsonBlock, { key: index, label: t("Content"), payload: block }) : null)
       ) : null,
-      referenceLabels.length > 0 ? (0, import_react36.createElement)("div", { className: "bt-urefs" }, t("Referenced {labels}", { labels: referenceLabels.join(t(", ")) })) : null
+      referenceLabels.length > 0 ? (0, import_react37.createElement)("div", { className: "bt-urefs" }, t("Referenced {labels}", { labels: referenceLabels.join(t(", ")) })) : null
     ),
-    text === "" ? null : (0, import_react36.createElement)("div", { className: "bt-utools" }, (0, import_react36.createElement)(CopyButton, { text }))
+    text === "" ? null : (0, import_react37.createElement)("div", { className: "bt-utools" }, (0, import_react37.createElement)(CopyButton, { text }))
   );
 }
 var USER_MESSAGE_CSS = `
@@ -13648,7 +13814,7 @@ function apply(ctx) {
   const reactionStore = sharedMap(STORAGE.reactions);
   const seenStore = sharedMap(STORAGE.seen);
   let seenAt = seenStore.read();
-  const ui3 = createSource({ details: null, view: "details", renaming: false, tab: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {} });
+  const ui3 = createSource({ details: null, view: "details", renaming: false, tab: null, newChat: null, exchange: null, menu: null, voice: null, palette: null, quote: null, settings: null, memory: null, file: null, toast: null, signIn: null, renameAgent: null, unread: unreadStore.read(), reactions: reactionStore.read(), visits: {} });
   const surface = createSource({ mode: readMode(), plain: false });
   let agentSessionCache = /* @__PURE__ */ new Set();
   try {
@@ -14197,6 +14363,16 @@ function apply(ctx) {
     exchange: (a, b) => call("exchange", { a, b }).catch(() => []),
     exchangeText: (id) => call("exchange-text", { id }).catch(() => void 0),
     fileText: (file) => call("file-text", { file }).catch(() => void 0),
+    // A group chat's file chip (send_file): the panel shows the file in the chat
+    // itself — an image, a PDF, a table's rows, a document's text. The host reads
+    // the Office kinds; the browser renders the rest from the bytes.
+    previewFile: (file) => ui3.set((state) => ({ ...state, file })),
+    closeFile: () => ui3.set((state) => state.file ? { ...state, file: null } : state),
+    filePreview: (file) => call("file-preview", { file }),
+    fileBytes: async (file) => {
+      const response = await callFile("file-open", { file });
+      return await response.blob();
+    },
     // A group chat's file chip (send_file): the host stages the bytes and opens the
     // file with the app that owns it, on the machine the host runs on.
     openFile: async (file) => {
