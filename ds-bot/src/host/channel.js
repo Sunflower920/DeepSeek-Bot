@@ -159,6 +159,8 @@ export function install(rt) {
     // Deleted groups, kept readable: their log and members survive the delete, so
     // a restart tells "it left" from "it never was".
     archivedRooms: Object.values(state.archivedRooms ?? {}).map(({ log, seen, lateRounds, sessions, segments, ...room }) => room),
+    // Work agreed before it started, and the ledger of how it was restated.
+    plans: rt.plansView(),
     exchangeTurns: state.exchangeTurns,
     questions: state.questions,
     // The team's DSH Agent (at most one): plain dsh Sessions, not Bots.

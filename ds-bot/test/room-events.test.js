@@ -103,13 +103,15 @@ test("the admin's dispatch names the starter and leaves the rest waiting, and th
   const { call, tool, emit, stop, sent, rt } = start()
   t.after(stop)
   const { chief, room } = await team(call)
-  await tool('post_to_group', { group: 'R1', message: '@Writer start the work @Reviewer check it after' }, rt.chatOf(chief))
+  // One worker named: the work starts at once and the rest wait for the
+  // hand-off. Two or more would stage a plan instead (see room-lifecycle).
+  await tool('post_to_group', { group: 'R1', message: '@Writer start the work' }, rt.chatOf(chief))
   const post = sent.find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
   assert.ok(post, 'the dispatch posts into the group')
   await relayRound(t, { call, tool, emit, stop, rt }, post)
   const roundStart = rt.roomEventsOf(room.id).find(line => line.type === 'round.start')
   assert.deepEqual(roundStart.slots.map(slot => slot.name), ['Writer'], 'only the first named member is called')
-  assert.deepEqual(roundStart.standby, ['Reviewer'], 'the rest wait for the hand-off')
+  assert.deepEqual(roundStart.standby, [], 'nobody else was named')
 })
 
 test('the events ring keeps a room recent, not everything it ever ran', async (t) => {

@@ -87,13 +87,15 @@ test("the admin's dispatch leaves a working member waiting too", async (t) => {
   t.after(stop)
   const { chief, writer, room } = await team(call)
   rt.live.set(rt.chatOf(writer.id), { turn: {} })
-  await tool('post_to_group', { group: 'R1', message: '@Writer start the work @Reviewer check it after' }, rt.chatOf(chief))
+  // One worker named: that dispatch still starts work directly, so the busy
+  // rule is what holds the member back - two or more would stage a plan.
+  await tool('post_to_group', { group: 'R1', message: '@Writer start the work' }, rt.chatOf(chief))
   const post = sent.find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
   await emit(room.id, { type: 'user/message', data: { source: post.message.source, content: post.message.content } })
   await tool('group_relay', {}, room.id, { callId: 'relay' })
   const roundStart = rt.roomEventsOf(room.id).find(line => line.type === 'round.start')
   assert.deepEqual(roundStart.slots, [], 'the only member the dispatch called is working')
-  assert.deepEqual(roundStart.standby, ['Writer', 'Reviewer'], 'both wait')
+  assert.deepEqual(roundStart.standby, ['Writer'], 'it waits instead')
 })
 
 // A member working in THIS room is the hand-off the round is built for: the
@@ -325,4 +327,95 @@ test('a round that asks for work says nothing of the sort', async (t) => {
   const sessionId = await drivenRound({ tool, emit, sent, rt }, room, writer.id, '核完了，十条都对得上。')
   assert.ok(sessionId, 'the member was called')
   assert.doesNotMatch(promptFor(sent, sessionId), /acknowledgement only/, 'a work round carries no such note')
+})
+
+// ── #7 staged plan: work is agreed before it starts ───────────────────────────
+
+// An admin's dispatch naming two or more workers stages a plan instead of
+// starting them at once; the work begins when the plan is approved.
+async function dispatchVia({ tool, emit, sent, rt }, room, chief, text) {
+  await tool('post_to_group', { group: room.name, message: text }, rt.chatOf(chief))
+  const post = [...sent].reverse().find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
+  await emit(room.id, { type: 'user/message', data: { source: post.message.source, content: post.message.content } })
+  // The round's shape is what these tests read, and it is recorded before any
+  // member is called - so the relay is started and released, not waited out.
+  const stop = new AbortController()
+  const before = rt.roomEventsOf(room.id).length
+  void tool('group_relay', {}, room.id, { callId: `relay-${Math.random()}`, signal: stop.signal }).catch(() => {})
+  await settle(() => rt.roomEventsOf(room.id).length > before + 1)
+  stop.abort()
+  await settle(() => true)
+}
+
+test('a dispatch naming two workers stages a plan and starts nobody', async (t) => {
+  const { call, tool, emit, stop, sent, rt } = start()
+  t.after(stop)
+  const { chief, writer, reviewer, room } = await team(call)
+  await dispatchVia({ tool, emit, sent, rt }, room, chief, '@Writer 先写实现 @Reviewer 写完审查')
+  const plans = Object.values(rt.state.plans ?? {})
+  assert.equal(plans.length, 1, 'the dispatch became a plan')
+  const plan = plans[0]
+  assert.equal(plan.status, 'draft')
+  assert.deepEqual(plan.steps.map(step => step.name), ['Writer', 'Reviewer'], 'in the order they were named')
+  assert.equal(plan.by, chief)
+  const staged = rt.roomEventsOf(room.id).find(line => line.type === 'plan.staged')
+  assert.ok(staged, 'the staging is recorded')
+  const round = rt.roomEventsOf(room.id).filter(line => line.type === 'round.start').at(-1)
+  assert.deepEqual(round.slots, [], 'nobody was called')
+})
+
+test('the work starts when the plan is approved, and not when it is sent back', async (t) => {
+  const { call, tool, emit, stop, sent, rt } = start()
+  t.after(stop)
+  const { chief, writer, reviewer, room } = await team(call)
+  await dispatchVia({ tool, emit, sent, rt }, room, chief, '@Writer 先写实现 @Reviewer 写完审查')
+  // A rejection leaves the work undone.
+  await dispatchVia({ tool, emit, sent, rt }, room, chief, '不行，改一下方案')
+  assert.equal(Object.values(rt.state.plans)[0].status, 'rejected')
+  assert.deepEqual(rt.roomEventsOf(room.id).filter(line => line.type === 'round.start').at(-1).slots, [], 'still nobody')
+  // A fresh plan, then approval: this time the first worker is called.
+  await dispatchVia({ tool, emit, sent, rt }, room, chief, '@Writer 先写实现 @Reviewer 写完审查')
+  await dispatchVia({ tool, emit, sent, rt }, room, chief, '同意，开始干')
+  const plan = Object.values(rt.state.plans).find(item => item.status !== 'rejected')
+  assert.equal(plan.status, 'running', 'approval started the work')
+  assert.equal(plan.approvedBy, chief)
+  const round = rt.roomEventsOf(room.id).filter(line => line.type === 'round.start').at(-1)
+  assert.deepEqual(round.slots.map(slot => slot.name), ['Writer'], 'the plan\'s first step was called')
+  assert.deepEqual(round.standby, ['Reviewer'], 'and the second waits for its hand-off')
+})
+
+test('a dispatch naming one worker still starts at once', async (t) => {
+  const { call, tool, emit, stop, sent, rt } = start()
+  t.after(stop)
+  const { chief, writer, room } = await team(call)
+  await dispatchVia({ tool, emit, sent, rt }, room, chief, '@Writer 只改这一处')
+  assert.equal(Object.keys(rt.state.plans ?? {}).length, 0, 'a single worker needs no plan')
+  const round = rt.roomEventsOf(room.id).filter(line => line.type === 'round.start').at(-1)
+  assert.deepEqual(round.slots.map(slot => slot.name), ['Writer'], 'and is called straight away')
+})
+
+test('restating a plan before approval keeps the old shape on record', async (t) => {
+  const { call, tool, emit, stop, sent, rt } = start()
+  t.after(stop)
+  const { chief, writer, reviewer, room } = await team(call)
+  await dispatchVia({ tool, emit, sent, rt }, room, chief, '@Writer 先写实现 @Reviewer 写完审查')
+  const first = Object.values(rt.state.plans)[0]
+  await dispatchVia({ tool, emit, sent, rt }, room, chief, '@Reviewer 先看规范 @Writer 再改实现')
+  assert.equal(Object.keys(rt.state.plans).length, 1, 'the same plan was restated')
+  assert.deepEqual(first.steps.map(step => step.name), ['Reviewer', 'Writer'], 'the new order')
+  assert.equal(first.revisions.length, 1, 'the old shape is on record')
+  assert.deepEqual(first.revisions[0].steps.map(step => step.name), ['Writer', 'Reviewer'], 'as it was before')
+  assert.equal(first.status, 'draft', 'and it still waits for approval')
+})
+
+test('approve_plan does what the group\'s word does', async (t) => {
+  const { call, tool, emit, stop, sent, rt } = start()
+  t.after(stop)
+  const { chief, writer, reviewer, room } = await team(call)
+  await dispatchVia({ tool, emit, sent, rt }, room, chief, '@Writer 先写实现 @Reviewer 写完审查')
+  const said = await tool('approve_plan', { group: 'R1', approve: true, reason: 'the user asked for it' }, rt.chatOf(chief))
+  assert.match(said, /Approved the plan/, 'the tool reports the approval')
+  const plan = Object.values(rt.state.plans)[0]
+  assert.equal(plan.status, 'running')
+  assert.equal(plan.approvedReason, 'the user asked for it')
 })

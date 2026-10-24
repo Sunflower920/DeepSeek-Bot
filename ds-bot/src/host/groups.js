@@ -227,6 +227,35 @@ export function install(rt) {
   // directive inside it - the round states its intent instead (the gateway's
   // ROUND_ACK_MARKER), and a member's "收到" ships as the answer it is instead
   // of rotating into an announce-only budget (live 2026-10-25 00:29).
+  // The plan as the group reads it: who does what, in what order.
+  const planText = plan => plan.steps.map(step => `${step.order}. ${step.name} — ${step.task}`).join('; ')
+
+  // A word from the user or the admin about the plan waiting in this room.
+  // Approval runs the plan's steps in their order; rejection puts it away.
+  // Without this a plan would only ever be staged and never start.
+  async function applyPlanWord(room, opener) {
+    const pending = rt.pendingPlanOf(rt.state, room.id)
+    if (pending === undefined || pending.status !== 'draft') return undefined
+    const text = String(opener.text ?? '')
+    const by = opener.botId ?? null
+    const allowed = by === null || rt.isAdminOf(room, by) || rt.isMain(by)
+    if (!allowed) return undefined
+    if (rt.REJECT_MARK.test(text)) {
+      rt.rejectPlan(pending, by, { reason: text.slice(0, 100) })
+      appendRoom(room, { who: 'DS Bot', kind: 'notice', text: `Plan sent back: ${pending.rejectedReason ?? 'the admin wants it changed'}. Nothing started.` })
+      rt.emitEvent(room.id, 'plan.rejected', { id: pending.id, by: by ?? 'user' })
+      return { rejected: true }
+    }
+    if (rt.APPROVE_MARK.test(text)) {
+      rt.approvePlan(pending, by, { reason: text.slice(0, 100) })
+      rt.startPlan(pending)
+      appendRoom(room, { who: 'DS Bot', kind: 'notice', text: `Approved, work starting: ${planText(pending)}` })
+      rt.emitEvent(room.id, 'plan.approved', { id: pending.id, by: by ?? 'user', steps: pending.steps.map(step => step.name) })
+      return { approved: true, steps: pending.steps, plan: pending }
+    }
+    return undefined
+  }
+
   const CLOSING_MARK = /(收工|结束吧|不用了|不必了|先这样|就这样|可以了|行了|够了|算了|辛苦了|谢谢|感谢|不存档|不用存档|先存档|存档吧|随时叫我|有活.*叫我|下班|明天再|下次再|暂停|停下|停吧|好吧|好的|好|可以|嗯|收到)/
   const ACTION_REQUEST = /(接下来|马上|立刻|立即|开始|动起来|改一下|做一下|试一下|跑一下|处理|改|做|执行|跑|调用|查|找|分析|写|生成|创建|新建|删除|修|排查|检查|测试|部署|安装|配置|更新|优化|重构|翻译|总结|列出|统计|对比|帮我|请|麻烦)/
   const ACTION_NEGATED = /(不用|不必|不需要|不要|不准|不许|无须|别|先不|甭|禁止)/
@@ -617,12 +646,42 @@ export function install(rt) {
       const references = posts.flatMap(post => post.references ?? [])
       // A member a Bot's post calls by name works for that Bot.
       const named = opener.botId === undefined ? [] : mentionsIn(opener.text ?? '', room.members.map(rt.botOf).filter(Boolean)).found
-      let { speakers, standby } = openingSpeakers(room, opener)
+      // A staged plan waits for a word from the user or the admin: the work is
+      // agreed before it starts, so the reply to a plan is what runs it.
+      const prepared = await applyPlanWord(room, opener)
+      let { speakers, standby, plan } = openingSpeakers(room, opener)
+      if (prepared?.approved) {
+        // Approved work runs in the plan's order, one worker at a time: the
+        // first step speaks and the rest wait for its hand-off, which is what
+        // the plan was for.
+        const members = prepared.steps.map(step => rt.botOf(step.botId)).filter(Boolean)
+        speakers = members.slice(0, 1)
+        standby = members.slice(1)
+        plan = undefined
+      } else if (prepared?.rejected) {
+        speakers = []
+        standby = []
+        plan = undefined
+      }
       // One live turn per Bot, counted across rooms: a member working somewhere
       // else - another group's round, or its own chat with the user - waits here
       // too, so this round never stalls on another room's work. A member working
       // in THIS room is the hand-off the round is built for: its message queues
       // and its answer comes back late, which is how work is handed on.
+      // The dispatch staged work instead of starting it: the group is shown the
+      // plan, and the round runs nobody until the plan is approved.
+      if (plan !== undefined) {
+        const { plan: staged, revised } = rt.stagePlan(room, opener, plan.members)
+        if (revised) {
+          appendRoom(room, { who: 'DS Bot', kind: 'notice', text: `Plan revised before approval (${staged.revisions.length} revision(s) on record): ${planText(staged)}` })
+          rt.emitEvent(room.id, 'plan.revised', { id: staged.id, steps: staged.steps.map(step => step.name), revisions: staged.revisions.length })
+        } else {
+          appendRoom(room, { who: 'DS Bot', kind: 'notice', text: `Plan staged, nobody starts until it is approved: ${planText(staged)}` })
+          rt.emitEvent(room.id, 'plan.staged', { id: staged.id, steps: staged.steps.map(step => step.name) })
+        }
+        await rt.save()
+      }
+
       const busy = speakers.filter(member => {
         const here = room.sessions?.[member.id]
         return rt.activeSessions(member.id).running.some(sessionId => sessionId !== here)
@@ -685,6 +744,10 @@ export function install(rt) {
         rt.warn('ds-bot: group round in %s stopped: %s', room.name, error)
       } finally {
         rt.roomProgress.delete(exec.callId)
+      }
+      // Work that was agreed and then run is finished when its round is.
+      for (const plan of Object.values(rt.state.plans ?? {})) {
+        if (plan.roomId === room.id && plan.status === 'running') rt.finishPlan(plan)
       }
       rt.emitEvent(room.id, 'round.end', {
         callId: exec.callId,
@@ -827,7 +890,13 @@ export function install(rt) {
     if (opener.progress) return { speakers: found, standby: [] }
     if (opener.late) return { speakers: found.length > 0 ? found : members.filter(bot => bot.id === opener.askedBy), standby: [] }
     if (found.length > 0 && !all) {
-      if (dispatches(room, opener.botId)) return { speakers: [found[0]], standby: found.slice(1) }
+      if (dispatches(room, opener.botId)) {
+        // Two or more workers named by one dispatch: the work is a plan first.
+        // Nobody starts until the plan is approved, so a reviewer never begins
+        // before the work it is meant to review.
+        if (found.length > 1) return { speakers: [], standby: [], plan: { members: found, by: opener.botId, text: opener.text } }
+        return { speakers: [found[0]], standby: found.slice(1) }
+      }
       return { speakers: found, standby: [] }
     }
     if (!all && room.mode === 'admin' && admin) return { speakers: [admin], standby: [] }

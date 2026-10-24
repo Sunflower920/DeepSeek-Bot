@@ -92,7 +92,10 @@ test('a dispatch into the group calls the first member it names; the named revie
   const { chief, dev, reviewer, room } = await team(call)
 
   // The admin posts the dispatch from its own chat, as post_to_group does.
-  await tool('post_to_group', { group: 'R1', message: '@Dev 派单，请改这三处。改完发版本公告，然后交给 @Reviewer 重走完整审查。' }, rt.chatOf(chief))
+  // One worker named here, so the work starts at once: the reviewer is named
+  // later, in the developer's hand-off, which is what this test is about. A
+  // dispatch naming both up front would stage a plan first.
+  await tool('post_to_group', { group: 'R1', message: '@Dev 派单，请改这三处。改完发版本公告，然后交给审查。' }, rt.chatOf(chief))
   const post = sent.find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
   await emit(room.id, { type: 'user/message', data: { source: post.message.source, content: post.message.content } })
   const running = relay(room.id, 'dispatch')

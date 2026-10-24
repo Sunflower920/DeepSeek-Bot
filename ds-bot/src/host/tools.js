@@ -669,6 +669,36 @@ export function install(rt) {
       rt.warn('ds-bot: %s stay in the tool list of %s: %s', HIDDEN_TOOLS.join(', '), agent.session?.id, error)
     }
   }
+  ctx.tools.register(defineTool({
+    name: 'approve_plan',
+    description: 'Approve the work staged for a group chat, or send it back. Main Bot or the group\'s admin only: a dispatch that names two or more Bots stages a plan instead of starting it, and nothing runs until it is approved.',
+    parameters: {
+      group: GROUP_REF,
+      approve: { type: 'boolean', description: 'true to approve and start the work, false to send the plan back' },
+      reason: { type: 'string', description: 'Why, which the group sees' },
+    },
+    output,
+    async execute(args, exec) {
+      await rt.load()
+      const self = rt.selfOf(exec.agent?.id)
+      if (rt.botOf(self) === undefined) return 'Only Bots on the team can approve a plan.'
+      const { room, error } = pickRoom(args.group, self)
+      if (error) return error
+      const pending = rt.pendingPlanOf(rt.state, room.id)
+      if (pending === undefined) return `No plan is waiting in "${room.name}".`
+      if (!(rt.isMain(self) || rt.isAdminOf(room, self))) return `Only a Main Bot or the admin of "${room.name}" can approve its plan.`
+      if (args.approve !== false) {
+        rt.approvePlan(pending, self, { reason: args.reason })
+        rt.startPlan(pending)
+        rt.emitEvent(room.id, 'plan.approved', { id: pending.id, by: self, steps: pending.steps.map(step => step.name) })
+        return `Approved the plan in "${room.name}": ${pending.steps.map(step => `${step.order}. ${step.name}`).join('; ')}. The work starts now.`
+      }
+      rt.rejectPlan(pending, self, { reason: args.reason })
+      rt.emitEvent(room.id, 'plan.rejected', { id: pending.id, by: self })
+      return `Sent the plan back in "${room.name}". Nothing started.`
+    },
+  }))
+
   // A new Bot, part, or group Session gets its Agent before ds-bot records it, so the
   // list is only trimmed once ds-bot resolves that Agent again; meanwhile the guard
   // refuses the question tool in any Bot Session, and a goal made there is blocked.
