@@ -161,6 +161,9 @@ export function install(rt) {
     archivedRooms: Object.values(state.archivedRooms ?? {}).map(({ log, seen, lateRounds, sessions, segments, ...room }) => room),
     // Work agreed before it started, and the ledger of how it was restated.
     plans: rt.plansView(),
+    // What was read out of the group's record, by whom, and its digest: one
+    // source, so a claim about the material can be checked against it.
+    audits: rt.auditsView(),
     exchangeTurns: state.exchangeTurns,
     questions: state.questions,
     // The team's DSH Agent (at most one): plain dsh Sessions, not Bots.

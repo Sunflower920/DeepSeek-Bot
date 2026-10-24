@@ -300,7 +300,15 @@ export function install(rt) {
       `You are number ${index + 1} of ${round.slots.length}. ${before === 0 ? 'Nobody spoke before you' : `${before} went before you`}${after === 0 ? ', and you are the last.' : `; ${after} after you will see your message.`}`,
       ROOM_REPLY,
     ].filter(Boolean).join('\n\n')
-    return { text, files: [...earlier, ...current].flatMap(line => line.files ?? []) }
+    // The biggest read of all: what this member is shown of the group each turn.
+    // It goes through the same source, with the span of lines it covers, so the
+    // prompt a member acted on is on record as much as a read_group_chat call.
+    const shown = [...earlier, ...current]
+    rt.auditRead({
+      roomId: room.id, botId: member.id, kind: 'prompt', text,
+      ...(shown.length > 0 ? { from: shown[0].seq, to: shown.at(-1).seq } : {}),
+    })
+    return { text, files: shown.flatMap(line => line.files ?? []) }
   }
 
   // Members whose turn in this group is running, and since when.
@@ -848,7 +856,13 @@ export function install(rt) {
       await loadGroupLines(room)
       if (args.seq !== undefined) {
         const line = room.log.find(entry => entry.seq === Number(args.seq))
-        return line === undefined ? `"${room.name}" no longer keeps message ${args.seq}; it keeps its latest ${ROOM_LOG_MAX}.` : lineText(line, memberText(room)(line))
+        if (line === undefined) return `"${room.name}" no longer keeps message ${args.seq}; it keeps its latest ${ROOM_LOG_MAX}.`
+        const whole = lineText(line, memberText(room)(line))
+        // One audit source: what was read, and its digest, so a later claim
+        // about this line can be checked against what it really was.
+        rt.auditRead({ roomId: room.id, botId: self, kind: 'line', text: whole, seq: Number(args.seq) })
+        void rt.save().catch(() => {})
+        return whole
       }
       // Thirty whole lines could fill the context, so a long one shows its start.
       const short = (line) => {
@@ -856,7 +870,16 @@ export function install(rt) {
         return length <= TEXT_KEPT ? line.text : `${headOf(line.text, TEXT_KEPT)}… (cut; ${length} characters in all; read_group_chat with seq ${line.seq} reads it whole)`
       }
       const lines = room.log.slice(-ROOM_READ_MAX)
-      return lines.length === 0 ? `"${room.name}" has no messages yet.` : `Latest in "${room.name}" (oldest first):\n${transcript(lines, short)}`
+      if (lines.length === 0) return `"${room.name}" has no messages yet.`
+      const seen = `Latest in "${room.name}" (oldest first):\n${transcript(lines, short)}`
+      // The same source records the whole-list read: the span it covered and a
+      // digest of the text it was actually shown, cuts and all.
+      rt.auditRead({
+        roomId: room.id, botId: self, kind: 'chat', text: seen,
+        ...(lines.length > 0 ? { from: lines[0].seq, to: lines.at(-1).seq } : {}),
+      })
+      void rt.save().catch(() => {})
+      return seen
     },
   }))
 
