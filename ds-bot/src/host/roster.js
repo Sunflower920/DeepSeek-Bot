@@ -413,6 +413,13 @@ export function install(rt) {
       rt.haltRoom(room, { kind: rt.HALT_USER, reason: patch.reason ?? '' })
     } else if (patch.status === 'active') {
       if (String(patch.reason ?? '').trim() === '') throw new Error('Say why the group is being resumed')
+      // A halt the user asked for is theirs to lift: a Bot serving its next request
+      // must not quietly undo the user's quiet. The user's own message in the group
+      // resumes it, and the refusal says so, so the Bot asks instead of acting.
+      // A halt the late-round limit caused is nobody's decision, so a Bot may lift it.
+      if (room.haltedKind === rt.HALT_USER && actorId !== undefined) {
+        throw new Error('The user halted this group; only the user writing in the group can resume it')
+      }
       rt.resumeRoom(room, { reason: patch.reason })
     }
     const notice = patch.notice === undefined ? undefined : cleanNotice(patch.notice)

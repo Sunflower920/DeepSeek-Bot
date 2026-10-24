@@ -190,19 +190,39 @@ test('the late-round limit halts the group, and the user writing here resumes it
 })
 
 test('a halt and a resume are decisions with reasons, taken through update_group', async (t) => {
-  const { call, tool, stop, rt } = start()
+  const { call, tool, emit, stop, sent, rt } = start()
   t.after(stop)
   const { chief, room } = await team(call)
   const halted = await tool('update_group', { group: 'R1', status: 'halted', reason: 'the user asked for quiet' }, rt.chatOf(chief))
   assert.match(halted, /stopped the group/, 'the halt reports itself')
   assert.equal(rt.state.rooms[room.id].haltedKind, 'user', 'a decision reads differently from the limit')
   // A resume without a reason is refused: a deliberate restart says why.
-  const refused = await tool('update_group', { group: 'R1', status: 'active' }, rt.chatOf(chief))
-  assert.match(refused, /Could not update/, 'a resume without a reason is refused')
+  const noReason = await tool('update_group', { group: 'R1', status: 'active' }, rt.chatOf(chief))
+  assert.match(noReason, /Could not update/, 'a resume without a reason is refused')
   assert.equal(rt.isHalted(rt.state.rooms[room.id]), true, 'and the group stays halted')
-  const resumed = await tool('update_group', { group: 'R1', status: 'active', reason: 'the user is back' }, rt.chatOf(chief))
-  assert.match(resumed, /resumed the group/, 'the resume reports itself')
-  assert.equal(rt.state.rooms[room.id].resumedReason, 'the user is back')
+  // The user's quiet is the user's to lift: a Bot serving its next request is
+  // refused, and told where the resume really lives.
+  const byBot = await tool('update_group', { group: 'R1', status: 'active', reason: 'the user is back' }, rt.chatOf(chief))
+  assert.match(byBot, /Could not update.*only the user writing in the group/, 'a Bot cannot lift the user\'s halt')
+  assert.equal(rt.isHalted(rt.state.rooms[room.id]), true, 'and the group stays halted')
+  // The user's own message resumes it, with the reason recorded.
+  await userRound({ call, tool, emit, sent, rt }, room, 'carry on')
+  assert.equal(rt.isHalted(rt.state.rooms[room.id]), false, 'the user message resumes the group')
+  assert.equal(rt.state.rooms[room.id].resumedReason, 'the user wrote here')
+})
+
+test('a halt the late-round limit caused is nobody\'s decision, so a Bot may lift it', async (t) => {
+  const { call, tool, stop, rt } = start()
+  t.after(stop)
+  const { chief, writer, room } = await team(call)
+  const late = (await rt.groupSessionFor(rt.state.rooms[room.id], rt.botOf(writer.id))).id
+  for (let index = 0; index <= ROOM_LATE_ROUNDS; index++) {
+    await rt.lateRoomReply(late, { roomId: room.id, askedBy: rt.state.rooms[room.id].admin }, 'done with the work')
+  }
+  assert.equal(rt.state.rooms[room.id].haltedKind, 'late-rounds', 'the limit halted it')
+  const resumed = await tool('update_group', { group: 'R1', status: 'active', reason: 'the work is finished' }, rt.chatOf(chief))
+  assert.match(resumed, /resumed the group/, 'a Bot may lift this halt, with its reason')
+  assert.equal(rt.state.rooms[room.id].resumedReason, 'the work is finished')
 })
 
 // ── #3 stopping is two stages ─────────────────────────────────────────────────
