@@ -15,8 +15,12 @@ const TEAM = {
   mainBotIds: ['chief'],
   revision: 1,
   whaleStored: true,
-  bots: { chief: { id: 'chief', sessionId: 'chief', name: 'Chief', role: 'Lead', instructions: '', createdAt: 1 } },
-  rooms: { room: { id: 'room', name: 'Desk', members: ['chief'], admin: 'chief', mode: 'everyone', sessions: {}, seq: 0, log: [] } },
+  bots: {
+    chief: { id: 'chief', sessionId: 'chief', name: 'Chief', role: 'Lead', instructions: '', createdAt: 1 },
+    dev: { id: 'dev', sessionId: 'dev', name: 'Dev', role: 'Dev', instructions: '', createdAt: 1 },
+    reviewer: { id: 'reviewer', sessionId: 'reviewer', name: 'Reviewer', role: 'Reviewer', instructions: '', createdAt: 1 },
+  },
+  rooms: { room: { id: 'room', name: 'Desk', members: ['chief', 'dev', 'reviewer'], admin: 'chief', mode: 'everyone', sessions: {}, seq: 0, log: [] } },
   exchanges: [],
   exchangeTurns: {},
   questions: {},
@@ -87,23 +91,28 @@ test('without a usable standard preset a Bot Session keeps DSH\'s default', asyn
   }
 })
 
-test('a group round calls group_relay directly when the Session declares it', async (t) => {
+test('a group round with nothing queued relays nothing, whatever the Session may call', async (t) => {
   const { relay, stop } = start()
   t.after(stop)
-  for (const tools of [declared('read', 'group_relay'), declared('run_code', 'group_relay')]) {
-    const block = await relayCall(relay, tools)
-    assert.deepEqual([block.name, block.arguments], ['group_relay', '{}'])
+  for (const tools of [declared('read', 'group_relay'), declared('run_code', 'group_relay'), declared('run_code')]) {
+    const chunks = await drain(relay({ provider: 'deepseek', model: 'v4', sessionId: 'room', messages: [userText('Hello team')], tools }, () => {
+      throw new Error('a group round never reaches the model')
+    }))
+    assert.deepEqual(chunks, [{ type: 'finish', reason: { kind: 'stop' } }], 'nothing queued means nothing to relay')
   }
 })
 
-test('a group made under the PTC preset relays through run_code', async (t) => {
-  const { relay, stop } = start()
+// The relay no longer goes through the model's tools at all - it runs inside the
+// group's own stream - so the preset a Session was made under cannot turn it
+// down. That is the #37 shape, answered by structure rather than by a fallback.
+test('a queued round runs the relay itself, even under a Session that may only call run_code', async (t) => {
+  const { rt, relay, stop } = start()
   t.after(stop)
-  const block = await relayCall(relay, declared('run_code'))
-  assert.equal(block.name, 'run_code')
-  assert.deepEqual(JSON.parse(block.arguments), {
-    description: 'Relay the group chat to its Bots',
-    code: 'return await tools.group_relay({})',
-    timeoutMs: 600_000,
-  })
+  rt.roomInbox.set('room', [{ text: '@Dev build it @Reviewer then check it', botId: 'chief', name: 'Chief' }])
+  const chunks = await drain(relay({ provider: 'deepseek', model: 'v4', sessionId: 'room', messages: [userText('Hello team')], tools: declared('run_code') }, () => {
+    throw new Error('a group round never reaches the model')
+  }))
+  assert.deepEqual(chunks, [{ type: 'finish', reason: { kind: 'stop' } }], 'the relay ran here, not as a call the model had to make')
+  assert.equal(Object.keys(rt.state.plans ?? {}).length, 1, 'and the dispatch became a plan')
+  assert.equal(rt.state.rooms.room.log.at(-1).who, 'DS Bot', 'the group was told')
 })

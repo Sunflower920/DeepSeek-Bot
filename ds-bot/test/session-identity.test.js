@@ -144,9 +144,11 @@ test('an image in a group is read for the group, and the group still relays its 
   assert.match(reading, /read by vision:\]\nA red triangle\./)
   assert.deepEqual(bench.requests.map(request => [request.model, request.sessionId]), [['vision', 'r1']])
 
+  // Nothing is queued for the group, so the relay runs nothing: it no longer
+  // hands a call to the agent loop, it runs the relay itself for what is queued.
   const chunks = await drain(ctx.llm.stream({ provider: 'deepseek', model: 'v4', sessionId: 'r1', messages: [userText('Discuss the picture')] }))
-  assert.ok(chunks.some(chunk => chunk.type === 'tool-call-delta' && chunk.name === 'group_relay'))
-  assert.equal(bench.requests.length, 1)
+  assert.deepEqual(chunks, [{ type: 'finish', reason: { kind: 'stop' } }])
+  assert.equal(bench.requests.length, 1, 'and the model was not consulted for the relay')
 })
 
 test('the Session hooks pass DS Bot\'s own requests through, and still act on a Session\'s own rounds', async (t) => {
@@ -160,7 +162,7 @@ test('the Session hooks pass DS Bot\'s own requests through, and still act on a 
 
   const relay = hook(/relayOrPass/)
   assert.equal(relay(own('r1', [userText('Read this')]), pass), passed)
-  assert.ok((await drain(relay(round('r1', [userText('Read this')]), pass))).some(chunk => chunk.name === 'group_relay'))
+  assert.deepEqual(await drain(relay(round('r1', [userText('Read this')]), pass)), [{ type: 'finish', reason: { kind: 'stop' } }], 'a round with nothing queued relays nothing')
 
   const handoff = [{ role: 'user', source: { kind: 'bot', handoff: true }, content: [{ type: 'text', text: 'Handoff note' }] }]
   const acknowledge = hook(/acknowledge/)

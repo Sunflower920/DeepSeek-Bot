@@ -1153,15 +1153,32 @@ export function install(rt) {
         return
       }
       const id = `toolu_relay_${randomUUID().replace(/-/g, '')}`
-      const declared = new Set((options.tools ?? []).map(tool => tool.name))
-      // Only for a group made under the PTC preset, which can call nothing but run_code;
-      // new group Sessions get the standard preset.
-      const [name, args] = declared.has('run_code') && !declared.has('group_relay')
-        ? ['run_code', JSON.stringify({ description: 'Relay the group chat to its Bots', code: 'return await tools.group_relay({})', timeoutMs: 600_000 })]
-        : ['group_relay', '{}']
+      // The relay runs here, inside this stream, instead of as a call handed to
+      // the agent loop. The loop dispatches a synthesized call as a scheduled
+      // execution, and this host's scheduled path logs without its inject -
+      // live 2026-10-25 14:16, "cannot get property randomUUID without inject"
+      // took the whole round down before ds-bot ever ran. turns.js queues the
+      // opening message before this hook is reached, so an empty queue means
+      // there is nothing new to relay.
+      const queued = rt.roomInbox.get(options.sessionId) ?? []
+      if (queued.length === 0) {
+        yield { type: 'finish', reason: { kind: 'stop' } }
+        return
+      }
+      const relay = ctx.registeredTools?.get?.('group_relay')
+      if (relay !== undefined) {
+        try {
+          await relay.execute({}, { agent: { id: options.sessionId }, callId: id, signal: options.signal })
+        } catch (error) {
+          rt.warn('ds-bot: group relay in %s failed: %s', options.sessionId, error?.message ?? error)
+        }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+        return
+      }
+      // No inline path (an older host): the synthesized call, as before.
       yield { type: 'block-start', index: 0, blockType: 'tool-call' }
-      yield { type: 'tool-call-delta', index: 0, id, name, argumentsDelta: args }
-      yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name, arguments: args } }
+      yield { type: 'tool-call-delta', index: 0, id, name: 'group_relay', argumentsDelta: '{}' }
+      yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: 'group_relay', arguments: '{}' } }
       yield { type: 'finish', reason: { kind: 'tool-calls' } }
     })()
   })
