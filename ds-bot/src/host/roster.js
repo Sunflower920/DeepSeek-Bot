@@ -220,7 +220,7 @@ export function install(rt) {
     // An undeclared policy fails here, at the moment it is set: falling back to
     // "everything" would make the restriction decoration.
     if (patch.toolPolicy !== undefined && !rt.isDeclaredPolicy?.(patch.toolPolicy)) {
-      throw new Error(rt.policyError?.(patch.toolPolicy, rt.declaredPolicies?.() ?? []) ?? `No tool policy named ${patch.toolPolicy}`)
+      throw new Error(rt.policyError?.(patch.toolPolicy, rt.declaredPolicies?.() ?? []) ?? `没有名为「${patch.toolPolicy}」的工具策略，请先声明再引用。`)
     }
     if (patch.toolPolicy !== undefined) {
       if (patch.toolPolicy === null || patch.toolPolicy === POLICY_ALL) delete bot.toolPolicy
@@ -402,7 +402,7 @@ export function install(rt) {
     if (!byMain && !byAdmin) throw new Error(`Only the user, a Main Bot, or the admin of "${room.name}" can change it`)
     // Same rule as a Bot's: a policy nobody declared is refused, loudly.
     if (patch.toolPolicy !== undefined && !rt.isDeclaredPolicy?.(patch.toolPolicy)) {
-      throw new Error(rt.policyError?.(patch.toolPolicy, rt.declaredPolicies?.() ?? []) ?? `No tool policy named ${patch.toolPolicy}`)
+      throw new Error(rt.policyError?.(patch.toolPolicy, rt.declaredPolicies?.() ?? []) ?? `没有名为「${patch.toolPolicy}」的工具策略，请先声明再引用。`)
     }
     let members = Array.isArray(patch.members) ? [...new Set(patch.members)] : [...room.members]
     for (const member of patch.add ?? []) if (!members.includes(member)) members.push(member)

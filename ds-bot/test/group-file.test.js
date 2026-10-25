@@ -125,7 +125,7 @@ test('a file outside the folders the group works in is refused with where it may
   await call('update-room', { id: room.id, workDir: dir })
   writeFileSync(join(outside, 'secret.txt'), 'nope')
   const out = await tool('send_file', { group: 'R1', path: join(outside, 'secret.txt') }, rt.chatOf(chief))
-  assert.match(out, /is outside the folders this group works in/)
+  assert.match(out, /不在本群的工作目录内/)
   assert.ok(out.includes(dir.replace(/\\/g, '/')) || out.includes(dir), 'the message names the folder')
   assert.equal(sent.filter(entry => entry.sessionId === room.id).length, 0, 'nothing was posted')
 })
@@ -169,7 +169,7 @@ test('a group with no folder to work in says so instead of sending nothing', asy
   const out = await tool('send_file', { group: 'R1', path: join(tmpdir(), 'any.txt') }, rt.chatOf(chief))
   rt.teamFolder = teamFolder
   rt.workDirOf = workDirOf
-  assert.match(out, /works in no folder yet/)
+  assert.match(out, /尚未配置工作目录/)
 })
 
 test('the bytes endpoint answers a stored file as a download, and a refusal as JSON', async (t) => {
@@ -302,7 +302,7 @@ test('resolveSendFile reads a path the way the group folder names one', async ()
     assert.match((await resolveSendFile('~', { base: realBase, roots: [homedir()] })).error, /is not a file/)
     writeFileSync(join(outside, 'far.txt'), 'x')
     const refused = await resolveSendFile(join(outside, 'far.txt'), { base: realBase, roots: [dir] })
-    assert.match(refused.error, /is outside the folders/)
+    assert.match(refused.error, /不在本群的工作目录内/)
     assert.ok(refused.error.includes(realpathSync(dir)))
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 5 })

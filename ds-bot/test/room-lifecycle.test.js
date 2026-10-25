@@ -314,7 +314,7 @@ test('a round that asks only for an acknowledgement says so in the prompt', asyn
   await emit(room.id, { type: 'user/message', data: { source: post.message.source, content: post.message.content } })
   const sessionId = await drivenRound({ tool, emit, sent, rt }, room, writer.id, '收到')
   assert.ok(sessionId, 'the member was called')
-  assert.match(promptFor(sent, sessionId), /this round asks for an acknowledgement only/, 'the round states its intent')
+  assert.match(promptFor(sent, sessionId), /本轮只求一个“收到”.*this round asks for an acknowledgement only/, '提示词中文示人、英文标记仍在（网关靠它识别）')
 })
 
 test('a round that asks for work says nothing of the sort', async (t) => {
@@ -414,7 +414,7 @@ test('approve_plan does what the group\'s word does', async (t) => {
   const { chief, writer, reviewer, room } = await team(call)
   await dispatchVia({ tool, emit, sent, rt }, room, chief, '@Writer 先写实现 @Reviewer 写完审查')
   const said = await tool('approve_plan', { group: 'R1', approve: true, reason: 'the user asked for it' }, rt.chatOf(chief))
-  assert.match(said, /Approved the plan/, 'the tool reports the approval')
+  assert.match(said, /已批准/, '工具报告了批准')
   const plan = Object.values(rt.state.plans)[0]
   assert.equal(plan.status, 'running')
   assert.equal(plan.approvedReason, 'the user asked for it')

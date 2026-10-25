@@ -46,7 +46,7 @@ export async function resolveSendFile(input, { base, roots = [], max }) {
     try { allowed.push(await realpath(root)) } catch { /* a folder that is gone names nothing */ }
   }
   if (!allowed.some(root => within(path, root))) {
-    return { error: `Not sent: ${path} is outside the folders this group works in (${allowed.join(' or ')}). Copy it there first, or ask the user to give the group that folder.` }
+    return { error: `未发送：${path} 不在本群的工作目录内（${allowed.join(' 或 ')}）。请先复制进去，或让用户给本群开放该目录。` }
   }
   if (info.size > max) {
     return { error: `Not sent: the file has ${info.size} bytes, more than the ${max} bytes this can send. Split it, or give the user its path instead.` }
@@ -323,7 +323,7 @@ export function install(rt) {
       color: { type: 'string', description: `One of ${[...COLORS, ...EXTRA_COLORS].join(', ')}` },
       model: { type: 'string', description: 'Move the Bot to another model, as provider/model or a model id' },
       work_dir: { ...WORK_DIR_PARAM, description: `${WORK_DIR_PARAM.description}; an empty string returns it to the team workspace` },
-      tool_policy: { type: 'string', description: 'Name of a declared tool policy this Bot works under; "all" or one of the declared names' },
+      tool_policy: { type: 'string', description: '本 Bot 遵循的已声明工具策略名；"all" 或某个已声明的策略名' },
     },
     output,
     async execute(args, exec) {
@@ -433,7 +433,7 @@ export function install(rt) {
       status: { type: 'string', enum: ['halted', 'active'], description: '"halted" stops the group: members\' posts keep their place in the log but their @ names call nobody until it is resumed. "active" resumes it and needs a reason' },
       reason: { type: 'string', description: 'Why the group is halted or resumed; a resume without one is refused' },
       work_dir: { ...WORK_DIR_PARAM, description: `${WORK_DIR_PARAM.description}. Every member works there in this group; an empty string lets each member work in its own folder again (Main Bots only)` },
-      tool_policy: { type: 'string', description: 'Name of a declared tool policy work in this group is held to; "all" or one of the declared names (Main Bots only)' },
+      tool_policy: { type: 'string', description: '本群工作所遵循的已声明工具策略名；"all" 或某个已声明的策略名（仅主 Bot 可改）' },
     },
     output,
     async execute(args, exec) {
@@ -562,7 +562,7 @@ export function install(rt) {
     description: 'Send a file from the folder this group works in into the group chat, where the user can open it. Use it for something you made or changed there — a document, a table, a report — instead of telling the user a path. Nobody is called to answer it unless the message says "@Name".',
     parameters: {
       group: GROUP_REF,
-      path: { type: 'string', required: true, description: 'Path of the file: absolute, or relative to the folder you work in. It must be inside a folder this group works in' },
+      path: { type: 'string', required: true, description: '文件路径：绝对路径，或相对于你工作目录的路径；必须位于本群的工作目录内' },
       message: { type: 'string', description: 'What to say with the file; write "@Name" to have a member look at it' },
     },
     output,
@@ -580,20 +580,20 @@ export function install(rt) {
       // The group's folder first, then the sender's own, then the team workspace: where
       // its work already sits, which the user has already let it write.
       const roots = [...new Set([rt.workDirOf?.({ roomId: room.id }), rt.workDirOf?.({ botId: self }), rt.teamFolder?.()].filter(Boolean))]
-      if (roots.length === 0) return `"${room.name}" works in no folder yet, so there is no file to send from. Ask the user to give the group one with update_group.`
+      if (roots.length === 0) return `「${room.name}」尚未配置工作目录，没有可发送的文件。请用 update_group 给它指定一个。`
       const base = rt.sessionFolder?.(exec.agent?.session ?? exec.agent)
       // A path that holds credentials is out of bounds even inside a folder
       // this group works in, and the refusal says what was left out rather
       // than leaving the member to imply it had seen everything.
       const asked = String(args.path ?? '')
       if (rt.isSecretPath?.(asked) || rt.isSecretPath?.(resolve(asked))) {
-        rt.emitEvent(room.id, 'scan.gap', { path: asked, why: 'it holds credentials' })
-        return `"${asked}" holds credentials, so it is not read or sent. Say what you need another way.`
+        rt.emitEvent(room.id, 'scan.gap', { path: asked, why: '该路径存放凭据' })
+        return `「${asked}」存放凭据，不会读取也不会发送。请换别的方式说明你的需求。`
       }
       const found = await resolveSendFile(args.path, { base, roots, max: GROUP_FILE_MAX })
       if (found.error !== undefined) {
         const { gap } = rt.scanScope?.([found.path ?? asked], roots) ?? {}
-        if (gap) rt.emitEvent(room.id, 'scan.gap', { path: asked, why: 'outside the folders this group works in' })
+        if (gap) rt.emitEvent(room.id, 'scan.gap', { path: asked, why: '不在本群的工作目录内' })
         return gap === undefined || gap === '' ? found.error : `${found.error} ${gap}`
       }
       let file
@@ -701,31 +701,31 @@ export function install(rt) {
   }
   ctx.tools.register(defineTool({
     name: 'approve_plan',
-    description: 'Approve the work staged for a group chat, or send it back. Main Bot or the group\'s admin only: a dispatch that names two or more Bots stages a plan instead of starting it, and nothing runs until it is approved.',
+    description: '批准或驳回群聊里已拟定的工作方案。仅主 Bot 或该群管理员可用：点名两个及以上 Bot 的派单会先出方案，批准后才会派人开工。',
     parameters: {
       group: GROUP_REF,
-      approve: { type: 'boolean', description: 'true to approve and start the work, false to send the plan back' },
-      reason: { type: 'string', description: 'Why, which the group sees' },
+      approve: { type: 'boolean', description: 'true 批准并开始工作；false 驳回方案' },
+      reason: { type: 'string', description: '原因，群里可见' },
     },
     output,
     async execute(args, exec) {
       await rt.load()
       const self = rt.selfOf(exec.agent?.id)
-      if (rt.botOf(self) === undefined) return 'Only Bots on the team can approve a plan.'
+      if (rt.botOf(self) === undefined) return '只有团队成员 Bot 可以批准方案。'
       const { room, error } = pickRoom(args.group, self)
       if (error) return error
       const pending = rt.pendingPlanOf(rt.state, room.id)
-      if (pending === undefined) return `No plan is waiting in "${room.name}".`
-      if (!(rt.isMain(self) || rt.isAdminOf(room, self))) return `Only a Main Bot or the admin of "${room.name}" can approve its plan.`
+      if (pending === undefined) return `「${room.name}」当前没有待批准的方案。`
+      if (!(rt.isMain(self) || rt.isAdminOf(room, self))) return `只有主 Bot 或「${room.name}」的管理员可以批准它的方案。`
       if (args.approve !== false) {
         rt.approvePlan(pending, self, { reason: args.reason })
         rt.startPlan(pending)
         rt.emitEvent(room.id, 'plan.approved', { id: pending.id, by: self, steps: pending.steps.map(step => step.name) })
-        return `Approved the plan in "${room.name}": ${pending.steps.map(step => `${step.order}. ${step.name}`).join('; ')}. The work starts now.`
+        return `已批准「${room.name}」的方案：${pending.steps.map(step => `${step.order}. ${step.name}`).join('；')}。工作现在开始。`
       }
       rt.rejectPlan(pending, self, { reason: args.reason })
       rt.emitEvent(room.id, 'plan.rejected', { id: pending.id, by: self })
-      return `Sent the plan back in "${room.name}". Nothing started.`
+      return `已驳回「${room.name}」的方案。未开始任何工作。`
     },
   }))
 

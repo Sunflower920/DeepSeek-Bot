@@ -30,19 +30,19 @@ export function install(rt) {
     const covered = []
     const skipped = []
     for (const path of asked) {
-      if (isSecretPath(path)) { skipped.push({ path, why: 'it holds credentials' }); continue }
-      if (allowed.length === 0) { skipped.push({ path, why: 'this group works in no folder' }); continue }
+      if (isSecretPath(path)) { skipped.push({ path, why: '该路径存放凭据' }); continue }
+      if (allowed.length === 0) { skipped.push({ path, why: '本群尚未配置工作目录' }); continue }
       const inner = flat(path)
       const held = allowed.some(root => {
         const outer = flat(root)
         return inner === outer || inner.startsWith(outer.endsWith('/') ? outer : `${outer}/`)
       })
       if (held) covered.push(path)
-      else skipped.push({ path, why: 'it is outside the folders this group works in' })
+      else skipped.push({ path, why: '不在本群的工作目录内' })
     }
     const gap = skipped.length === 0
       ? ''
-      : `Not covered (${skipped.length}): ${skipped.map(item => `${item.path} — ${item.why}`).join('; ')}. This report covers what was covered and no more.`
+      : `未覆盖（${skipped.length} 项）：${skipped.map(item => `${item.path} — ${item.why}`).join('；')}。以上结论仅覆盖已覆盖的范围。`
     return { covered, skipped, gap }
   }
 

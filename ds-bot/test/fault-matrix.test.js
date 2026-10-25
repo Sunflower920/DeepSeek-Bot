@@ -130,7 +130,7 @@ test('the fault matrix: 8 Bots across 32 nodes, each one the case that breaks it
   node('policy.undeclared-refused', (await call('update-bot', { id: dev.id, toolPolicy: 'nope' })).ok === false)
   await call('update-bot', { id: dev.id, toolPolicy: 'quiet' })
   node('policy.declared-accepted', rt.botOf(dev.id).toolPolicy === 'quiet')
-  node('policy.gates-tool', (await tool('send_file', { group: 'R1', path: join(dir, 'x.txt') }, rt.chatOf(dev.id))).includes('not in the "quiet" policy'))
+  node('policy.gates-tool', (await tool('send_file', { group: 'R1', path: join(dir, 'x.txt') }, rt.chatOf(dev.id))).includes('不在当前「quiet」策略'))
   await call('update-bot', { id: dev.id, toolPolicy: 'all' })
 
   // 16-18: files - the digest, the keys, and the gap.
@@ -140,11 +140,11 @@ test('the fault matrix: 8 Bots across 32 nodes, each one the case that breaks it
   await tool('send_file', { group: 'R1', path: join(dir, 'deliverable.txt'), message: 'Here.' }, rt.chatOf(chief))
   node('file.digest-recorded', Object.values(rt.state.rooms[room.id].fileDigests ?? {}).at(-1)?.digest?.length === 16)
   writeFileSync(join(dir, 'secrets.json'), '{}')
-  node('file.secret-refused', (await tool('send_file', { group: 'R1', path: join(dir, 'secrets.json') }, rt.chatOf(chief))).includes('holds credentials'))
+  node('file.secret-refused', (await tool('send_file', { group: 'R1', path: join(dir, 'secrets.json') }, rt.chatOf(chief))).includes('存放凭据'))
   const outside = mkdtempSync(join(tmpdir(), 'ds-bot-matrix-out-'))
   t.after(() => rmSync(outside, { recursive: true, force: true, maxRetries: 5 }))
   writeFileSync(join(outside, 'x.txt'), 'x')
-  node('file.outside-gap', (await tool('send_file', { group: 'R1', path: join(outside, 'x.txt') }, rt.chatOf(chief))).includes('Not covered'))
+  node('file.outside-gap', (await tool('send_file', { group: 'R1', path: join(outside, 'x.txt') }, rt.chatOf(chief))).includes('未覆盖'))
 
   // 19-21: reads - one source, a digest, and the prompt itself.
   const line = (rt.state.rooms[room.id].log ?? []).at(-1)

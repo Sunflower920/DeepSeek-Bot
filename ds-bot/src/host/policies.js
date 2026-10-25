@@ -9,7 +9,7 @@
 // restriction becomes decoration.
 export const POLICY_ALL = 'all'
 
-export const policyError = (id, declared) => `No tool policy named "${id}"; declared: ${declared.length > 0 ? declared.join(', ') : 'none yet'}. Declare it first.`
+export const policyError = (id, declared) => `没有名为「${id}」的工具策略；已声明：${declared.length > 0 ? declared.join('、') : '暂无'}。请先声明再引用。`
 
 export function install(rt) {
   const { state } = rt
@@ -41,7 +41,7 @@ export function install(rt) {
   }
   const refusalFor = (name, scope) => {
     const { id, tools } = toolsFor(scope)
-    return `"${name}" is not in the "${id}" policy this works under (${tools.join(', ') || 'nothing'}). Ask a Main Bot to widen the policy.`
+    return `「${name}」不在当前「${id}」策略允许的工具范围内（${tools.join('、') || '空'}）。请让主 Bot 放宽该策略。`
   }
 
   Object.assign(rt, { declaredPolicies: declared, policyOf, isDeclaredPolicy: isDeclared, toolsFor, allowsTool, refusalFor })

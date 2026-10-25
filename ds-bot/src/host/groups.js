@@ -245,14 +245,14 @@ export function install(rt) {
     if (!allowed) return undefined
     if (rt.REJECT_MARK.test(text)) {
       rt.rejectPlan(pending, by, { reason: text.slice(0, 100) })
-      appendRoom(room, { who: 'DS Bot', kind: 'notice', text: `Plan sent back: ${pending.rejectedReason ?? 'the admin wants it changed'}. Nothing started.` })
+      appendRoom(room, { who: 'DS Bot', kind: 'notice', text: `方案已驳回：${pending.rejectedReason ?? '管理员要求修改'}。未开始任何工作。` })
       rt.emitEvent(room.id, 'plan.rejected', { id: pending.id, by: by ?? 'user' })
       return { rejected: true }
     }
     if (rt.APPROVE_MARK.test(text)) {
       rt.approvePlan(pending, by, { reason: text.slice(0, 100) })
       rt.startPlan(pending)
-      appendRoom(room, { who: 'DS Bot', kind: 'notice', text: `Approved, work starting: ${planText(pending)}` })
+      appendRoom(room, { who: 'DS Bot', kind: 'notice', text: `已批准，工作开始：${planText(pending)}` })
       rt.emitEvent(room.id, 'plan.approved', { id: pending.id, by: by ?? 'user', steps: pending.steps.map(step => step.name) })
       return { approved: true, steps: pending.steps, plan: pending }
     }
@@ -269,7 +269,10 @@ export function install(rt) {
     if (ACTION_NEGATED.test(value)) return true
     return !ACTION_REQUEST.test(value)
   }
-  const ACK_ROUND_NOTE = 'Round note: this round asks for an acknowledgement only; no work is requested.'
+  // The note the member reads, and the marker the gateway looks for in the same
+  // breath: the display is Chinese, the English phrase is the protocol constant
+  // both sides agreed on (docs/执行规范.md: display Chinese, constants bilingual).
+  const ACK_ROUND_NOTE = '本轮只求一个“收到”，不要求执行任何工作（this round asks for an acknowledgement only; no work is requested）。直接回复“收到”即可。'
 
   // `files` are the files of the lines shown, which go to the member with the prompt.
   function roomPrompt(room, member, round) {
@@ -684,10 +687,10 @@ export function install(rt) {
       if (plan !== undefined) {
         const { plan: staged, revised } = rt.stagePlan(room, opener, plan.members)
         if (revised) {
-          appendRoom(room, { who: 'DS Bot', kind: 'notice', text: `Plan revised before approval (${staged.revisions.length} revision(s) on record): ${planText(staged)}` })
+          appendRoom(room, { who: 'DS Bot', kind: 'notice', text: `批准前方案已修改（共有 ${staged.revisions.length} 次修订记录在案）：${planText(staged)}` })
           rt.emitEvent(room.id, 'plan.revised', { id: staged.id, steps: staged.steps.map(step => step.name), revisions: staged.revisions.length })
         } else {
-          appendRoom(room, { who: 'DS Bot', kind: 'notice', text: `Plan staged, nobody starts until it is approved: ${planText(staged)}` })
+          appendRoom(room, { who: 'DS Bot', kind: 'notice', text: `方案已拟定，批准后才会派人：${planText(staged)}` })
           rt.emitEvent(room.id, 'plan.staged', { id: staged.id, steps: staged.steps.map(step => step.name) })
         }
         await rt.save()
