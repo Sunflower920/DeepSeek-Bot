@@ -410,6 +410,29 @@ test('the work starts when the plan is approved, and not when it is sent back', 
   assert.deepEqual(round.standby, ['Reviewer'], 'and the second waits for its hand-off')
 })
 
+test('the worker holding a step is told the plan and whom to hand off to', async (t) => {
+  // A worker that is not told it holds step N of an agreed plan finishes its
+  // part and stops: the next step waits for a hand-off nobody asked for (live
+  // 2026-10-25 21:17 - the developer repacked the zip and never named the
+  // reviewer). The prompt carries the plan, the worker's own step, and the
+  // name it must hand off to.
+  const { call, tool, emit, stop, sent, rt } = start()
+  t.after(stop)
+  const { chief, writer, reviewer, room } = await team(call)
+  await dispatchVia({ tool, emit, sent, rt }, room, chief, '@Writer 先写实现 @Reviewer 写完审查')
+  // The admin's approval arrives as a post; the round is started afterwards so
+  // it can be read at the worker's prompt.
+  await tool('post_to_group', { group: room.name, message: '同意，开始干' }, rt.chatOf(chief))
+  const post = [...sent].reverse().find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
+  await emit(room.id, { type: 'user/message', data: { source: post.message.source, content: post.message.content } })
+  const sessionId = await drivenRound({ tool, emit, sent, rt }, room, writer.id, '写好了')
+  assert.ok(sessionId !== undefined, 'the writer was called')
+  const prompt = promptFor(sent, sessionId)
+  assert.match(prompt, /The group approved this plan, in order: 1\. Writer — 先写实现; 2\. Reviewer — 写完审查/, 'the plan reaches the worker')
+  assert.match(prompt, /You hold step 1: 先写实现/, 'its own step is named')
+  assert.match(prompt, /hand off by naming @Reviewer/, 'and the hand-off target by name')
+})
+
 test('a dispatch naming one worker still starts at once', async (t) => {
   const { call, tool, emit, stop, sent, rt } = start()
   t.after(stop)

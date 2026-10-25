@@ -273,6 +273,20 @@ export function install(rt) {
   // breath: the display is Chinese, the English phrase is the protocol constant
   // both sides agreed on (docs/执行规范.md: display Chinese, constants bilingual).
   const ACK_ROUND_NOTE = '本轮只求一个“收到”，不要求执行任何工作（this round asks for an acknowledgement only; no work is requested）。直接回复“收到”即可。'
+  // What the group agreed to do, told to the member that holds a step of it.
+  // Without this a worker does its part and stops: the plan's next step waits
+  // on a hand-off nobody asked for (live 2026-10-25 21:17 - the first worker
+  // finished the work and never named the reviewer).
+  const planNoteFor = (room, member) => {
+    const plan = Object.values(rt.state.plans ?? {}).find(item => item.roomId === room.id && item.status === 'running')
+    const mine = plan?.steps.find(step => step.botId === member.id)
+    if (mine === undefined) return ''
+    const list = plan.steps.map(step => `${step.order}. ${step.name} — ${step.task}`).join('; ')
+    const next = plan.steps.find(step => step.order === mine.order + 1)
+    return next === undefined
+      ? `The group approved this plan, in order: ${list}. You hold the last step (${mine.order}): ${mine.task}. Finish it and post the result in the group.`
+      : `The group approved this plan, in order: ${list}. You hold step ${mine.order}: ${mine.task}. Do that step now, and do not do the later steps yourself. When it is done, hand off by naming @${next.name} in your reply and say what it needs from you; that is what starts its step.`
+  }
 
   // `files` are the files of the lines shown, which go to the member with the prompt.
   function roomPrompt(room, member, round) {
@@ -302,6 +316,7 @@ export function install(rt) {
       round.shown?.includes(member.id) ? '' : referenceNote(round.references),
       working.length > 0 ? `Still at work on what they were asked; each posts here when done: ${working.map(item => `${item.bot.name} (${minutesSince(item.since)} min${item.unread > 0 ? `, with ${item.unread} group message(s) it has not read yet` : ''})`).join(', ')}.` : '',
       round.ackOnly ? ACK_ROUND_NOTE : '',
+      planNoteFor(room, member),
       `Speaking order for this round: ${round.slots.map(slotLabel).join(' → ')}.`,
       `You are number ${index + 1} of ${round.slots.length}. ${before === 0 ? 'Nobody spoke before you' : `${before} went before you`}${after === 0 ? ', and you are the last.' : `; ${after} after you will see your message.`}`,
       ROOM_REPLY,
