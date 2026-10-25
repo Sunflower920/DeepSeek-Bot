@@ -1,4 +1,5 @@
-// Plans: work a group has agreed to do before it starts doing it.
+import { randomUUID } from 'node:crypto'
+
 //
 // A dispatch that names two or more workers used to start them at once. It now
 // stages a plan instead - who does what, in what order, with what deliverable -
@@ -57,7 +58,7 @@ export function install(rt) {
       save()
       return { plan: pending, revised: true }
     }
-    const id = ctx.randomUUID?.() ?? `plan-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const id = randomUUID()
     const plan = {
       id, roomId: room.id, by: opener.botId ?? null, text: String(opener.text ?? '').slice(0, 400),
       steps, deliverables: [], status: 'draft', revisions: [],

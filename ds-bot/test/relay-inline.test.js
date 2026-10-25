@@ -95,6 +95,28 @@ test('the hook reaches the relay through rt, never through a registry on ctx', a
   assert.ok(!produced.some(chunk => chunk.blockType === 'tool-call'))
 })
 
+test('staging a plan needs no property the host does not serve', async (t) => {
+  // The same mistake a third time: stagePlan reached for ctx.randomUUID - a
+  // property the fixture has and this host does not, so the round died inside
+  // the plan path (live 2026-10-25 15:47). A plan is made with node:crypto's
+  // randomUUID, and this drives the whole path with both invented properties
+  // taken away: the registry and the uuid.
+  const { call, tool, emit, stop, sent, ctx, rt } = start()
+  t.after(stop)
+  const { chief, room } = await team(call)
+  await tool('post_to_group', { group: 'R1', message: '@Dev build it @Reviewer then check it' }, rt.chatOf(chief))
+  const post = [...sent].reverse().find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
+  await emit(room.id, { type: 'user/message', data: { source: post.message.source, content: post.message.content } })
+  delete ctx.randomUUID
+  ctx.registeredTools = undefined
+  const produced = await streamGroup(rt, room.id, [{ role: 'user', content: post.message.content, source: post.message.source }])
+  const plan = Object.values(rt.state.plans ?? {})[0]
+  assert.ok(plan, 'the plan was staged')
+  assert.match(plan.id, /^[0-9a-f-]{36}$/, 'with a real uuid')
+  assert.ok(rt.roomEventsOf(room.id).some(line => line.type === 'plan.staged'))
+  assert.ok(!produced.some(chunk => chunk.blockType === 'tool-call'))
+})
+
 test('a stream with nothing queued yields nothing and relays nothing', async (t) => {
   const { call, tool, emit, stop, sent, rt } = start()
   t.after(stop)
