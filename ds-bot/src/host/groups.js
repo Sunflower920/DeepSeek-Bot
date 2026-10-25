@@ -619,7 +619,11 @@ export function install(rt) {
     }
   }
 
-  ctx.tools.register(defineTool({
+  // The relay tool, kept where the group's own stream can reach it. The stream
+  // hook runs where the plugin ctx answers an unknown property with "without
+  // inject" - ctx.registeredTools is not a service this host serves - so the
+  // relay is reached through rt, which is ours.
+  const relayTool = defineTool({
     name: 'group_relay',
     description: 'Group chat relay only. Deliver the latest user message to the Bots in this group chat, one at a time, and collect their replies.',
     parameters: {},
@@ -786,7 +790,9 @@ export function install(rt) {
       exec.concludeTurn?.()
       return JSON.stringify({ replies: round.replies, passed: round.passed, ...(round.failed.length > 0 ? { failed: round.failed } : {}) })
     },
-  }))
+  })
+  ctx.tools.register(relayTool)
+  rt.runGroupRelay = relayTool.execute
 
   // Private context enters a group only through this tool, and the group sees each use.
   ctx.tools.register(defineTool({
@@ -1168,10 +1174,10 @@ export function install(rt) {
         yield { type: 'finish', reason: { kind: 'stop' } }
         return
       }
-      const relay = ctx.registeredTools?.get?.('group_relay')
-      if (relay !== undefined) {
+      const relay = rt.runGroupRelay
+      if (typeof relay === 'function') {
         try {
-          await relay.execute({}, { agent: { id: options.sessionId }, callId: id, signal: options.signal })
+          await relay({}, { agent: { id: options.sessionId }, callId: id, signal: options.signal })
         } catch (error) {
           rt.warn('ds-bot: group relay in %s failed: %s', options.sessionId, error?.message ?? error)
         }

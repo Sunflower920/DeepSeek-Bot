@@ -36,7 +36,7 @@ function start() {
     for (const listener of ctx.listeners.get('session/event') ?? []) await listener({ id: sessionId }, event)
   }
   const stop = async () => { await ctx.dispose(); rmSync(home, { recursive: true, force: true, maxRetries: 5 }) }
-  return { call, tool, emit, stop, sent, rt }
+  return { call, tool, emit, stop, sent, ctx, rt }
 }
 
 async function team(call) {
@@ -75,6 +75,24 @@ test('the relay runs inside the stream and stages the plan without a synthesized
   assert.deepEqual(produced.at(-1), { type: 'finish', reason: { kind: 'stop' } })
   // And nobody was called: approval is what starts approved work.
   assert.deepEqual(rt.roomEventsOf(room.id).filter(line => line.type === 'round.start').at(-1).slots, [])
+})
+
+test('the hook reaches the relay through rt, never through a registry on ctx', async (t) => {
+  // The real host answers an unknown ctx property with "without inject":
+  // ctx.registeredTools is not a service it serves, and reaching for it there
+  // took a whole round down (live 2026-10-25 15:2x). The relay is on rt.
+  const { call, tool, emit, stop, sent, ctx, rt } = start()
+  t.after(stop)
+  const { chief, room } = await team(call)
+  await tool('post_to_group', { group: 'R1', message: '@Dev build it @Reviewer then check it' }, rt.chatOf(chief))
+  const post = [...sent].reverse().find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
+  await emit(room.id, { type: 'user/message', data: { source: post.message.source, content: post.message.content } })
+  // The post is queued; from here the hook must not need the registry at all.
+  ctx.registeredTools = undefined
+  const produced = await streamGroup(rt, room.id, [{ role: 'user', content: post.message.content, source: post.message.source }])
+  assert.equal(Object.values(rt.state.plans ?? {}).length, 1, 'the relay still ran')
+  assert.ok(rt.roomEventsOf(room.id).some(line => line.type === 'plan.staged'))
+  assert.ok(!produced.some(chunk => chunk.blockType === 'tool-call'))
 })
 
 test('a stream with nothing queued yields nothing and relays nothing', async (t) => {
