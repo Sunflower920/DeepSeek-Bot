@@ -357,11 +357,37 @@ test('a dispatch naming two workers stages a plan and starts nobody', async (t) 
   const plan = plans[0]
   assert.equal(plan.status, 'draft')
   assert.deepEqual(plan.steps.map(step => step.name), ['Writer', 'Reviewer'], 'in the order they were named')
+  // Each step carries the words aimed at that member - the segment between
+  // their own @name and the next one - not a copy of the whole dispatch.
+  assert.deepEqual(plan.steps.map(step => step.task), ['先写实现', '写完审查'], 'each step reads as its own instruction')
   assert.equal(plan.by, chief)
   const staged = rt.roomEventsOf(room.id).find(line => line.type === 'plan.staged')
   assert.ok(staged, 'the staging is recorded')
   const round = rt.roomEventsOf(room.id).filter(line => line.type === 'round.start').at(-1)
   assert.deepEqual(round.slots, [], 'nobody was called')
+})
+
+test('a step\'s task is the segment between its own mention and the next', async (t) => {
+  // The segment rule, and its edges: a preamble belongs to nobody, a member
+  // named with no words of their own inherits the shared instruction, and a
+  // short name never matches inside a longer one.
+  const { call, tool, emit, stop, sent, rt } = start()
+  t.after(stop)
+  const { chief, writer, reviewer, room } = await team(call)
+  await dispatchVia({ tool, emit, sent, rt }, room, chief, '请各位准备：@Writer 先写实现 @Reviewer 写完审查')
+  const plan = Object.values(rt.state.plans)[0]
+  assert.deepEqual(plan.steps.map(step => step.task), ['先写实现', '写完审查'], 'the preamble belongs to nobody')
+  // A second dispatch restates it; the words are re-split the same way.
+  await dispatchVia({ tool, emit, sent, rt }, room, chief, '@Reviewer 先审 @Writer 再改')
+  const revised = Object.values(rt.state.plans)[0]
+  assert.deepEqual(revised.steps.map(step => [step.name, step.task]), [['Reviewer', '先审'], ['Writer', '再改']])
+  // A member named with nothing between the mentions takes the shared text.
+  await call('create-bot', { name: 'Tester' })
+  await call('update-room', { id: room.id, add: [Object.values(rt.state.bots).find(bot => bot.name === 'Tester').id] })
+  await dispatchVia({ tool, emit, sent, rt }, room, chief, '@Writer 改 @Tester @Reviewer 审')
+  const shared = Object.values(rt.state.plans)[0]
+  const tester = shared.steps.find(step => step.name === 'Tester')
+  assert.equal(tester.task, '改 审', 'the empty segment falls back to the shared instruction')
 })
 
 test('the work starts when the plan is approved, and not when it is sent back', async (t) => {

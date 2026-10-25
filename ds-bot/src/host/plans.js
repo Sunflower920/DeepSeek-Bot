@@ -31,15 +31,33 @@ export function install(rt) {
   // fixed at staging time so a revision cannot silently reorder running work.
   const stepsOf = (members, text) => members.map((bot, index) => ({
     botId: bot.id, name: bot.name, order: index + 1,
-    task: taskFor(text, bot.name), deliverable: '',
+    task: taskFor(text, bot.name, members.map(member => member.name)), deliverable: '',
   }))
 
-  // The words aimed at one member: the sentence that names them, if any, so a
-  // step reads as an instruction and not as a copy of the whole message.
-  const taskFor = (text, name) => {
-    const clean = String(text ?? '').replace(new RegExp(`@${name}`, 'g'), ' ').trim()
-    const parts = clean.split(/[。；;\n]/).map(part => part.trim()).filter(Boolean)
-    return (parts.find(part => part.length > 2) ?? clean).slice(0, 200)
+  // The words aimed at one member: from their own @name to the next @name (or
+  // the end), so a step reads as the instruction given to that member and not
+  // as a copy of the whole dispatch. A dispatch is written "@A 改这三处 @B 改
+  // 完审查", and the segment between the mentions is what each one was asked.
+  const escapeRegExp = value => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  // Longest name first: "开发" must not match inside "开发工程师".
+  const mentionPattern = names => new RegExp(`@(?:${[...names].sort((a, b) => b.length - a.length).map(escapeRegExp).join('|')})`, 'g')
+  const taskFor = (text, name, names) => {
+    const all = names ?? [name]
+    const raw = String(text ?? '')
+    const spans = [...raw.matchAll(mentionPattern(all))].map(hit => ({
+      at: hit.index,
+      end: hit.index + hit[0].length,
+      name: all.find(candidate => raw.startsWith(`@${candidate}`, hit.index)) ?? name,
+    }))
+    const own = spans.find(span => span.name === name)
+    const from = own === undefined ? 0 : own.end
+    const until = spans.find(span => span.at >= from)?.at ?? raw.length
+    const segment = raw.slice(from, until).trim()
+    // An empty segment ("@A @B 一起干" leaves A nothing) falls back to the
+    // whole message minus the mentions: a shared instruction is better than a
+    // step that reads as if nobody had said anything.
+    const shared = raw.replace(mentionPattern(all), ' ').replace(/\s+/g, ' ').trim()
+    return (segment.length > 0 ? segment : shared).slice(0, 200)
   }
 
   // Stage (or restate) the work a dispatch describes. A second dispatch while a
