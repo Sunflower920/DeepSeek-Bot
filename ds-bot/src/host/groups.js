@@ -273,12 +273,35 @@ export function install(rt) {
   // breath: the display is Chinese, the English phrase is the protocol constant
   // both sides agreed on (docs/执行规范.md: display Chinese, constants bilingual).
   const ACK_ROUND_NOTE = '本轮只求一个“收到”，不要求执行任何工作（this round asks for an acknowledgement only; no work is requested）。直接回复“收到”即可。'
+  // Whether the answer that just arrived completes the plan it belongs to.
+  //
+  // Only the member holding the LAST step can finish a plan, and their answer
+  // counts whether it came back inside the round or as a late reply - a worker
+  // that outlives its turn reports late, and on 2026-10-28 all 25 minutes of the
+  // developer's work arrived that way. Finishing at the end of any round closed
+  // the plan 14 seconds in, which silently removed the note the later steps
+  // depend on.
+  const settlePlanFor = (room, botId) => {
+    if (botId === undefined) return
+    for (const plan of Object.values(rt.state.plans ?? {})) {
+      if (plan.roomId !== room.id || plan.status !== 'running') continue
+      const steps = plan.steps ?? []
+      if (steps[steps.length - 1]?.botId === botId) rt.finishPlan(plan)
+    }
+  }
+
   // What the group agreed to do, told to the member that holds a step of it.
   // Without this a worker does its part and stops: the plan's next step waits
   // on a hand-off nobody asked for (live 2026-10-25 21:17 - the first worker
   // finished the work and never named the reviewer).
   const planNoteFor = (room, member) => {
-    const plan = Object.values(rt.state.plans ?? {}).find(item => item.roomId === room.id && item.status === 'running')
+    // Newest running plan, not the first one found: an approved plan now stays
+    // running across rounds, so a room can briefly hold two of them (the old
+    // work and a plan approved after it). Picking by insertion order would tell
+    // a member it holds a step of work that has already been superseded.
+    const plan = Object.values(rt.state.plans ?? {})
+      .filter(item => item.roomId === room.id && item.status === 'running')
+      .sort((a, b) => (b.startedAt ?? b.createdAt ?? 0) - (a.startedAt ?? a.createdAt ?? 0))[0]
     const mine = plan?.steps.find(step => step.botId === member.id)
     if (mine === undefined) return ''
     const list = plan.steps.map(step => `${step.order}. ${step.name} — ${step.task}`).join('; ')
@@ -778,9 +801,18 @@ export function install(rt) {
       } finally {
         rt.roomProgress.delete(exec.callId)
       }
-      // Work that was agreed and then run is finished when its round is.
-      for (const plan of Object.values(rt.state.plans ?? {})) {
-        if (plan.roomId === room.id && plan.status === 'running') rt.finishPlan(plan)
+      // A plan is finished only once the member holding its LAST step has
+      // replied. Finishing it at the end of any round was wrong in a way that
+      // hid itself: an approved plan spans several rounds, so the first round's
+      // end marked it done - and `planNoteFor` only reads a RUNNING plan, so
+      // every later step lost the one hint that tells it whom to hand off to.
+      // Live 2026-10-28: the developer repacked for 25 minutes while the plan
+      // had already been closed 14 seconds in, and the reviewer's step ran with
+      // no plan note at all.
+      for (const reply of round.replies) {
+        // A failed or still-working member has not answered anything.
+        if (reply.kind === 'failed' || reply.kind === 'working') continue
+        settlePlanFor(room, reply.botId)
       }
       rt.emitEvent(room.id, 'round.end', {
         callId: exec.callId,
@@ -1010,6 +1042,9 @@ export function install(rt) {
     if (quiet) noteQuiet(room)
     else room.lateRounds = (room.lateRounds ?? 0) + 1
     await rt.save()
+    // A late reply is still an answer: if this member holds the plan's last
+    // step, the plan is done - the same rule as inside the round.
+    settlePlanFor(room, member.id)
     rt.emitEvent(room.id, 'late-reply', { name: member.name, ...(done ? { done: true } : {}), ...(quiet ? { quiet: true } : {}) })
     await postToRoom(room, member, done ? '' : text, { late: true, ...(done ? { done: true } : {}), ...(info.askedBy ? { askedBy: info.askedBy } : {}), ...(quiet ? { quiet: true } : {}) })
       .catch(error => rt.warn('ds-bot: late group reply from %s failed: %s', member.name, error))

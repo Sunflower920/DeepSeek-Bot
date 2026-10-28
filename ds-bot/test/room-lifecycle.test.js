@@ -433,6 +433,55 @@ test('the worker holding a step is told the plan and whom to hand off to', async
   assert.match(prompt, /hand off by naming @Reviewer/, 'and the hand-off target by name')
 })
 
+test('a plan stays running until its last step answers, so the later step still gets it', async (t) => {
+  // A plan spans several rounds, but the plan used to be closed at the end of
+  // ANY round - so only step 1 ever saw the plan note, and step 2 ran with no
+  // idea it was part of an agreed plan (live 2026-10-28: the developer worked
+  // 25 minutes while the plan had been finished 14 seconds in). Control: with
+  // the old rule the first assertion below fails, because one answer closed it.
+  const { call, tool, emit, stop, sent, rt } = start()
+  t.after(stop)
+  const { chief, writer, reviewer, room } = await team(call)
+  await dispatchVia({ tool, emit, sent, rt }, room, chief, '@Writer 先写实现 @Reviewer 写完审查')
+  await tool('post_to_group', { group: room.name, message: '同意，开始干' }, rt.chatOf(chief))
+  const post = [...sent].reverse().find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
+  await emit(room.id, { type: 'user/message', data: { source: post.message.source, content: post.message.content } })
+
+  const writerSession = await drivenRound({ tool, emit, sent, rt }, room, writer.id, '写好了，等审查')
+  assert.ok(writerSession !== undefined, 'the first step was called')
+  const afterFirst = Object.values(rt.state.plans)[0]
+  assert.equal(afterFirst.status, 'running', 'one step answering does not finish a two-step plan')
+  assert.equal(afterFirst.finishedAt, undefined, 'and no finish time is invented for it')
+
+  // The second step's turn comes later. It still gets the plan note - that is
+  // the entire reason the plan must stay running.
+  // The second step's turn comes later, opened by the admin naming just that
+  // member (a user message in an "everyone" room would call all three, and the
+  // reviewer speaks last, so the test would drive the wrong turn).
+  await tool('post_to_group', { group: room.name, message: '@Reviewer 请审查' }, rt.chatOf(chief))
+  const reviewPost = [...sent].reverse().find(entry => entry.sessionId === room.id && entry.message.source.role === 'post')
+  await emit(room.id, { type: 'user/message', data: { source: reviewPost.message.source, content: reviewPost.message.content } })
+  const reviewerSession = await drivenRound({ tool, emit, sent, rt }, room, reviewer.id, '审查通过')
+  assert.ok(reviewerSession !== undefined, 'the reviewer was called')
+  assert.match(promptFor(sent, reviewerSession), /You hold the last step \(2\)/, 'the last step is told it is the last')
+  assert.equal(Object.values(rt.state.plans)[0].status, 'done', 'the last step is what finishes the plan')
+})
+
+test('a plan whose last step has not answered is never marked finished', async (t) => {
+  // The other half of the same rule: a round that ends without the final
+  // member's answer (it was busy, it failed, it never came) must not close the
+  // plan either. Otherwise the note disappears for exactly the step still owed.
+  const { call, tool, emit, stop, sent, rt } = start()
+  t.after(stop)
+  const { chief, writer, reviewer, room } = await team(call)
+  await dispatchVia({ tool, emit, sent, rt }, room, chief, '@Writer 先写实现 @Reviewer 写完审查')
+  await dispatchVia({ tool, emit, sent, rt }, room, chief, '同意，开始干')
+  // Nobody answers at all: dispatchVia aborts the relay, so the round ends with
+  // an empty reply list - which is what a stuck or busy worker looks like.
+  const plan = Object.values(rt.state.plans)[0]
+  assert.equal(plan.status, 'running', 'an empty round does not finish the plan')
+})
+
 test('a dispatch naming one worker still starts at once', async (t) => {
   const { call, tool, emit, stop, sent, rt } = start()
   t.after(stop)
