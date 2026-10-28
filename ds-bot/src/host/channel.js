@@ -297,8 +297,23 @@ export function install(rt) {
         case 'usage':
           await rt.load()
           return ok(await rt.usageView({ timeZone: typeof body.timeZone === 'string' ? body.timeZone.slice(0, 64) : undefined }))
-        case 'room-progress':
-          return ok([...rt.roomProgress.entries()].filter(([, entry]) => entry.roomId === body.roomId).map(([callId, entry]) => ({ callId, replies: entry.replies, speaking: entry.speaking ?? null })))
+        case 'room-progress': {
+          // Rounds still running, then the last few that FINISHED. The chat
+          // needs both: it draws a round from this endpoint, and a round that
+          // dropped out of it on completion disappeared from the screen even
+          // though every message was recorded (live 2026-10-28 - eight messages
+          // on disk, "nobody did anything" on screen). A finished round reports
+          // no speaker, so the chat does not draw a typing indicator for it.
+          const pick = entry => ({ callId: entry.callId, replies: entry.replies, speaking: entry.speaking ?? null })
+          const active = [...rt.roomProgress.entries()]
+            .filter(([, entry]) => entry.roomId === body.roomId)
+            .map(([callId, entry]) => pick({ callId, ...entry }))
+          const activeIds = new Set(active.map(item => item.callId))
+          const done = [...(rt.recentRounds ?? new Map()).entries()]
+            .filter(([callId, entry]) => entry.roomId === body.roomId && !activeIds.has(callId))
+            .map(([callId, entry]) => pick({ callId, ...entry, speaking: null }))
+          return ok([...active, ...done])
+        }
         // A group's lifecycle events after a sequence number: the round's shape
         // (speaking order, standby), drops and quiet notices. The panel polls it
         // beside room-progress; a restart replays from the last one it saw.

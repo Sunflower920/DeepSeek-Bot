@@ -800,6 +800,14 @@ export function install(rt) {
         rt.warn('ds-bot: group round in %s stopped: %s', room.name, error)
       } finally {
         rt.roomProgress.delete(exec.callId)
+        // Hand the finished round to the read-only record the chat draws from.
+        // Bounded: a room only ever shows its last few, and this map lives for
+        // the whole process.
+        if (round.replies.length > 0) {
+          rt.recentRounds.set(exec.callId, round)
+          const mine = [...rt.recentRounds.entries()].filter(([, item]) => item.roomId === room.id)
+          for (const [callId] of mine.slice(0, Math.max(0, mine.length - 8))) rt.recentRounds.delete(callId)
+        }
       }
       // A plan is finished only once the member holding its LAST step has
       // replied. Finishing it at the end of any round was wrong in a way that

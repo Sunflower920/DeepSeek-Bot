@@ -77,6 +77,16 @@ export function install(rt) {
   const roomWaiters = new Map()
   /** @type {Map<string, {roomId:string, replies:any[], members:string[], speaking:string|null}>} */
   const roomProgress = new Map()
+  /**
+   * The last few FINISHED rounds, kept only so the chat can still draw them.
+   * The client reads replies from the group_relay tool result, which the inline
+   * relay (v0.1.9) never writes into the session - so once a round left
+   * `roomProgress` it became invisible, and a finished round looked like nobody
+   * had done anything. Deliberately separate from `roomProgress`: that map also
+   * answers "is this room busy", and a finished round must not.
+   * @type {Map<string, {roomId:string, replies:any[], members:string[], speaking:string|null}>}
+   */
+  const recentRounds = new Map()
   /** @type {Map<string, {text:string, botId?:string, name?:string, reportBack?:boolean, kickoff?:boolean, references?:{labels:string[], text:string}[]}[]>} messages a room's next relay posts */
   const roomInbox = new Map()
   const queueRoomMessage = (roomId, item) => roomInbox.set(roomId, [...(roomInbox.get(roomId) ?? []), item])
@@ -643,5 +653,5 @@ export function install(rt) {
     }
   }
 
-  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, roomInbox, activityView, workView, roomWorkView, callDetail, doingOf, stopRoomTurn, releaseBot, convergeSessions })
+  Object.assign(rt, { live, liveOf, roomWaiters, roomProgress, recentRounds, roomInbox, activityView, workView, roomWorkView, callDetail, doingOf, stopRoomTurn, releaseBot, convergeSessions })
 }

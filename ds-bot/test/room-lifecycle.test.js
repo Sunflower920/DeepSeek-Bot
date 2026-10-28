@@ -482,6 +482,31 @@ test('a plan whose last step has not answered is never marked finished', async (
   assert.equal(plan.status, 'running', 'an empty round does not finish the plan')
 })
 
+test('a finished round is still served to the chat, and never twice', async (t) => {
+  // The chat draws a round from room-progress. A round that left that map on
+  // completion disappeared from the screen although every message was recorded
+  // (live 2026-10-28: eight messages on disk, "nobody did anything" on screen),
+  // because the inline relay never gives the client a tool result to read.
+  const { call, stop, rt } = start()
+  t.after(stop)
+  const { room } = await team(call)
+  rt.recentRounds.set('round-done', {
+    roomId: room.id, members: [], speaking: 'writer',
+    replies: [{ botId: 'b1', name: 'Writer', text: '做好了' }],
+  })
+  const served = (await call('room-progress', { roomId: room.id })).value
+  const mine = served.find(entry => entry.callId === 'round-done')
+  assert.ok(mine, 'a finished round is still served')
+  assert.equal(mine.replies[0].text, '做好了', 'with what was said')
+  assert.equal(mine.speaking, null, 'and no live speaker, so no typing indicator')
+
+  // If the same call id is running again it must appear once, as the live round.
+  rt.roomProgress.set('round-done', { roomId: room.id, members: [], speaking: 'writer', replies: [] })
+  const again = (await call('room-progress', { roomId: room.id })).value
+  assert.equal(again.filter(entry => entry.callId === 'round-done').length, 1, 'not listed twice')
+  assert.equal(again.find(entry => entry.callId === 'round-done').speaking, 'writer', 'the live one wins')
+})
+
 test('a dispatch naming one worker still starts at once', async (t) => {
   const { call, tool, emit, stop, sent, rt } = start()
   t.after(stop)
