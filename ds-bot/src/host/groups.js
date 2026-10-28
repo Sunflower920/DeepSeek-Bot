@@ -371,10 +371,21 @@ export function install(rt) {
 
   // A member's message in the round: in the log, for the members after it, and in the
   // round's replies, for the user.
+  //
+  // Posted the moment it is said, not when the round ends: the panel draws a finished
+  // round from the group_relay tool call and its result, and since the relay runs
+  // inline (v0.1.9) neither ever lands in the session - so nothing carries the round
+  // to the chat on its own. A late reply already goes out through postToRoom and is
+  // drawn as its own bubble; this takes the same route, and has to take it here
+  // rather than after the round, or the whole round appears at once at the end
+  // (reported 2026-10-28 20:56: "it only shows up when everything has finished").
+  // quiet: this is the group speaking, its "@" must call nobody and open no work.
   const postInRound = (room, round, member, text) => {
     appendRoom(room, { who: member.name, botId: member.id, text })
     round.replies.push({ botId: member.id, name: member.name, color: member.color, text, time: Date.now() })
     void rt.save().catch(() => {})
+    void postToRoom(room, member, text, { progress: true, quiet: true, echo: true })
+      .catch(error => rt.warn('ds-bot: could not post a reply from %s: %s', member.name, error))
   }
 
   // One member turn inside the room; resolves to its final text, `{ failure }` when its
@@ -828,23 +839,6 @@ export function install(rt) {
         passed: round.passed.map(bot => bot.name ?? bot.id),
         ...(round.failed.length > 0 ? { failed: round.failed } : {}),
       })
-      // What the group said has to be posted, because nothing else carries it to
-      // the chat: the panel draws a finished round from the group_relay tool call
-      // and its result, and since the relay runs inline (v0.1.9) neither exists in
-      // the session - measured 2026-10-28: `tool/call` 726, `tool/result` 726, and
-      // `"replies"` 0 times, so the component that would draw the round is never
-      // mounted and the whole round vanishes from the screen while every line sits
-      // in the record. A late reply already goes out through postToRoom and is
-      // drawn as its own bubble; posting each reply takes the same route.
-      // quiet: this is a redisplay, its "@" must call nobody. progress: it is the
-      // group speaking, not a request for new work.
-      for (const reply of round.replies) {
-        if (reply.kind === 'failed' || reply.kind === 'user' || !reply.text) continue
-        const member = rt.botOf(reply.botId)
-        if (member === undefined) continue
-        await postToRoom(room, member, reply.text, { progress: true, quiet: true, echo: true })
-          .catch(error => rt.warn('ds-bot: could not post a reply from %s: %s', member.name, error))
-      }
       if (exec.signal?.aborted) {
         const started = round.started.map(turn => ({ sessionId: room.sessions?.[turn.botId] ?? turn.sessionId, exchangeId: turn.exchangeId }))
         for (const turn of started) void rt.stopRoomTurn?.(turn.sessionId, turn.exchangeId)
