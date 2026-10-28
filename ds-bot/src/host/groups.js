@@ -828,6 +828,23 @@ export function install(rt) {
         passed: round.passed.map(bot => bot.name ?? bot.id),
         ...(round.failed.length > 0 ? { failed: round.failed } : {}),
       })
+      // What the group said has to be posted, because nothing else carries it to
+      // the chat: the panel draws a finished round from the group_relay tool call
+      // and its result, and since the relay runs inline (v0.1.9) neither exists in
+      // the session - measured 2026-10-28: `tool/call` 726, `tool/result` 726, and
+      // `"replies"` 0 times, so the component that would draw the round is never
+      // mounted and the whole round vanishes from the screen while every line sits
+      // in the record. A late reply already goes out through postToRoom and is
+      // drawn as its own bubble; posting each reply takes the same route.
+      // quiet: this is a redisplay, its "@" must call nobody. progress: it is the
+      // group speaking, not a request for new work.
+      for (const reply of round.replies) {
+        if (reply.kind === 'failed' || reply.kind === 'user' || !reply.text) continue
+        const member = rt.botOf(reply.botId)
+        if (member === undefined) continue
+        await postToRoom(room, member, reply.text, { progress: true, quiet: true, echo: true })
+          .catch(error => rt.warn('ds-bot: could not post a reply from %s: %s', member.name, error))
+      }
       if (exec.signal?.aborted) {
         const started = round.started.map(turn => ({ sessionId: room.sessions?.[turn.botId] ?? turn.sessionId, exchangeId: turn.exchangeId }))
         for (const turn of started) void rt.stopRoomTurn?.(turn.sessionId, turn.exchangeId)
